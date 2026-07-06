@@ -4,7 +4,7 @@ LuhSeller = LuhSeller or {}
 local LS = LuhSeller
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.1.0"
+LS.VERSION = "1.1.1"
 
 local QUALITY_POOR = 0
 local QUALITY_COMMON = 1
@@ -44,6 +44,19 @@ end
 
 function LS:Print(msg)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff00ccffLuhSeller:|r " .. tostring(msg))
+end
+
+function LS:FormatMoney(copper)
+	copper = math.floor(copper or 0)
+	local gold = math.floor(copper / 10000)
+	local silver = math.floor((copper % 10000) / 100)
+	local cop = copper % 100
+	if gold > 0 then
+		return string.format("%dg %ds %dc", gold, silver, cop)
+	elseif silver > 0 then
+		return string.format("%ds %dc", silver, cop)
+	end
+	return string.format("%dc", cop)
 end
 
 function LS:GetItemIDFromLink(link)
@@ -344,17 +357,32 @@ function LS:SellItems()
 
 	self.isSelling = true
 
+	local soldCopper = 0
+	local soldCount = 0
+
 	for bag = 0, 4 do
 		local numSlots = GetContainerNumSlots(bag)
 		for slot = numSlots, 1, -1 do
 			if self:ShouldSellItem(bag, slot) then
 				local link = GetContainerItemLink(bag, slot)
+				local _, count = GetContainerItemInfo(bag, slot)
+				local vendorPrice = select(11, GetItemInfo(link)) or 0
+				count = count or 1
+
 				UseContainerItem(bag, slot)
+
+				soldCopper = soldCopper + (vendorPrice * count)
+				soldCount = soldCount + 1
+
 				if self.db.showChat and link then
 					self:Print("Sold " .. link)
 				end
 			end
 		end
+	end
+
+	if soldCount > 0 then
+		self:Print(string.format("Sold %d item(s) for %s.", soldCount, self:FormatMoney(soldCopper)))
 	end
 
 	self.isSelling = false

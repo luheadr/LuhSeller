@@ -2,7 +2,7 @@
 ## Title: LuhSeller
 ## Notes: Auto-sell items at vendors with configurable rules, whitelist, and sell list.
 ## Author: LuhSeller
-## Version: 1.1.0
+## Version: 1.1.1
 ## SavedVariablesPerCharacter: LuhSellerDB
 ## X-Category: Inventory
 
