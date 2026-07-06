@@ -4,20 +4,24 @@ LuhSeller = LuhSeller or {}
 local LS = LuhSeller
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.0.1"
+LS.VERSION = "1.1.0"
 
 local QUALITY_POOR = 0
 local QUALITY_COMMON = 1
 local QUALITY_UNCOMMON = 2
+local QUALITY_RARE = 3
 
 local defaults = {
 	enabled = true,
 	sellGrey = true,
-	sellWhiteEquip = false,
-	sellGreenSoulboundEquip = false,
+	sellWhiteEquip = true,
+	sellGreenSoulboundEquip = true,
+	sellBlueSoulboundNonEquip = true,
 	showChat = true,
+	restockEnabled = true,
 	whitelist = {},
 	sellList = {},
+	restockList = {},
 	minimap = {
 		hide = false,
 		angle = 220,
@@ -62,6 +66,14 @@ function LS:GetItemName(link)
 		return nil
 	end
 	return GetItemInfo(link)
+end
+
+function LS:GetItemStackSize(itemID)
+	local _, _, _, _, _, _, _, maxStack = GetItemInfo(itemID)
+	if maxStack and maxStack > 0 then
+		return maxStack
+	end
+	return 20
 end
 
 function LS:ResolveItemInput(input)
@@ -124,6 +136,25 @@ function LS:AddToList(list, itemID, name)
 		return false, "Item is already on the list."
 	end
 	table.insert(list, { id = itemID, name = name or ("Item " .. itemID) })
+	return true
+end
+
+function LS:AddToRestockList(itemID, name, quantity)
+	if not itemID then
+		return false, "Could not resolve item."
+	end
+	if self:IsOnList(self.db.restockList, itemID) then
+		return false, "Item is already on the restock list."
+	end
+	quantity = tonumber(quantity) or self:GetItemStackSize(itemID)
+	if quantity < 1 then
+		quantity = 1
+	end
+	table.insert(self.db.restockList, {
+		id = itemID,
+		name = name or ("Item " .. itemID),
+		quantity = quantity,
+	})
 	return true
 end
 
@@ -271,7 +302,35 @@ function LS:ShouldSellItem(bag, slot)
 		return true
 	end
 
+	if db.sellBlueSoulboundNonEquip and quality == QUALITY_RARE and not self:IsEquipment(link) and self:IsSoulbound(bag, slot) then
+		return true
+	end
+
 	return false
+end
+
+function LS:CountItemInBags(itemID)
+	local total = 0
+	for bag = 0, 4 do
+		for slot = 1, GetContainerNumSlots(bag) do
+			local link = GetContainerItemLink(bag, slot)
+			if link and self:GetItemIDFromLink(link) == itemID then
+				local _, count = GetContainerItemInfo(bag, slot)
+				total = total + (count or 1)
+			end
+		end
+	end
+	return total
+end
+
+function LS:FindMerchantItemIndex(itemID)
+	for i = 1, GetMerchantNumItems() do
+		local link = GetMerchantItemLink(i)
+		if link and self:GetItemIDFromLink(link) == itemID then
+			return i
+		end
+	end
+	return nil
 end
 
 function LS:SellItems()
@@ -285,7 +344,6 @@ function LS:SellItems()
 
 	self.isSelling = true
 
-	-- Single pass, high slot to low, so bag indices do not shift under us.
 	for bag = 0, 4 do
 		local numSlots = GetContainerNumSlots(bag)
 		for slot = numSlots, 1, -1 do
@@ -302,20 +360,42 @@ function LS:SellItems()
 	self.isSelling = false
 end
 
-function LS:ToggleEnabled()
-	self.db.enabled = not self.db.enabled
-	self:Print(self.db.enabled and "Auto-sell enabled." or "Auto-sell disabled.")
-	if self.RefreshUI then
-		self:RefreshUI()
-	end
-end
-
-function LS:OnMerchantShow()
-	if not self.db.enabled then
+function LS:RestockItems()
+	if not self.db.restockEnabled or self.isRestocking then
 		return
 	end
 
-	-- Merchant frame is not always ready on the first MERCHANT_SHOW tick.
+	if not MerchantFrame or not MerchantFrame:IsShown() then
+		return
+	end
+
+	self.isRestocking = true
+
+	for _, entry in ipairs(self.db.restockList) do
+		local have = self:CountItemInBags(entry.id)
+		local need = entry.quantity - have
+		if need > 0 then
+			local merchantIndex = self:FindMerchantItemIndex(entry.id)
+			if merchantIndex then
+				local _, _, _, _, numAvailable = GetMerchantItemInfo(merchantIndex)
+				local buyQty = need
+				if numAvailable and numAvailable > 0 then
+					buyQty = math.min(need, numAvailable)
+				end
+				if buyQty > 0 then
+					BuyMerchantItem(merchantIndex, buyQty)
+					if self.db.showChat then
+						self:Print("Bought " .. buyQty .. "x " .. (entry.name or entry.id))
+					end
+				end
+			end
+		end
+	end
+
+	self.isRestocking = false
+end
+
+function LS:OnMerchantOpen()
 	if not self.sellDelayFrame then
 		self.sellDelayFrame = CreateFrame("Frame")
 	end
@@ -329,8 +409,17 @@ function LS:OnMerchantShow()
 		frame:SetScript("OnUpdate", nil)
 		if MerchantFrame and MerchantFrame:IsShown() then
 			LS:SellItems()
+			LS:RestockItems()
 		end
 	end)
+end
+
+function LS:ToggleEnabled()
+	self.db.enabled = not self.db.enabled
+	self:Print(self.db.enabled and "Auto-sell enabled." or "Auto-sell disabled.")
+	if self.RefreshUI then
+		self:RefreshUI()
+	end
 end
 
 local eventFrame = CreateFrame("Frame")
@@ -344,7 +433,7 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
 		LS:InitMinimap()
 		LS:Print("Loaded v" .. LS.VERSION .. ". Type /ls for settings.")
 	elseif event == "MERCHANT_SHOW" then
-		LS:OnMerchantShow()
+		LS:OnMerchantOpen()
 	end
 end)
 
@@ -356,6 +445,8 @@ SlashCmdList["LUHSELLER"] = function(msg)
 		LS:ToggleEnabled()
 	elseif msg == "sell" then
 		LS:SellItems()
+	elseif msg == "restock" then
+		LS:RestockItems()
 	else
 		LS:ToggleUI()
 	end
