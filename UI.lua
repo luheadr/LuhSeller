@@ -522,7 +522,7 @@ function LS:InitUI()
 		frame.settingsPanel,
 		QUALITY_COLORS.blue,
 		"blue",
-		" soulbound non-equipment items",
+		" soulbound equipment you can't use",
 		8,
 		y,
 		function(checked)

@@ -4,7 +4,7 @@ LuhSeller = LuhSeller or {}
 local LS = LuhSeller
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.1.1"
+LS.VERSION = "1.1.2"
 
 local QUALITY_POOR = 0
 local QUALITY_COMMON = 1
@@ -251,6 +251,13 @@ function LS:IsSoulbound(bag, slot)
 	return self:ScanTooltip(bag, slot, { "Soulbound" })
 end
 
+function LS:IsUnusableEquipment(link)
+	if not self:IsEquipment(link) then
+		return false
+	end
+	return not IsEquippableItem(link)
+end
+
 function LS:IsProtectedItem(bag, slot, link)
 	if not link then
 		return true
@@ -315,7 +322,7 @@ function LS:ShouldSellItem(bag, slot)
 		return true
 	end
 
-	if db.sellBlueSoulboundNonEquip and quality == QUALITY_RARE and not self:IsEquipment(link) and self:IsSoulbound(bag, slot) then
+	if db.sellBlueSoulboundNonEquip and quality == QUALITY_RARE and self:IsSoulbound(bag, slot) and self:IsUnusableEquipment(link) then
 		return true
 	end
 

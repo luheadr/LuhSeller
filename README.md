@@ -5,7 +5,7 @@ Auto-sell addon for **World of Warcraft 3.3.5a (WotLK)**.
 ## Features
 
 - Auto-sell when opening a vendor (with master on/off toggle)
-- Sell grey, white, green soulbound equipment, and blue soulbound non-equipment items (all on by default)
+- Sell grey, white, green soulbound equipment, and blue soulbound equipment you can't use (all on by default)
 - Auto-restock from vendors with per-item target quantity (defaults to stack size)
 - Whitelist (never sell), sell list (always sell), and restock list
 - Drag-and-drop, item link, ID, or name to manage lists
