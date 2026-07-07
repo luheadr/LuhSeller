@@ -21,13 +21,6 @@ local BEHAVIOR_TO_ROLL = {
 	de = LS.ROLL_DE,
 }
 
-local ARMOR_TYPES = {
-	cloth = true,
-	leather = true,
-	mail = true,
-	plate = true,
-}
-
 local rollDefaults = {
 	rollEnabled = true,
 	rollGreenEnabled = true,
@@ -81,18 +74,6 @@ function LS:IsRecipe(link)
 		return true
 	end
 	return false
-end
-
-function LS:GetArmorType(link)
-	local _, _, _, _, _, itemType, itemSubType = GetItemInfo(link)
-	if itemType ~= "Armor" or not itemSubType then
-		return nil
-	end
-	local armorType = itemSubType:lower()
-	if ARMOR_TYPES[armorType] then
-		return armorType
-	end
-	return nil
 end
 
 function LS:GetRollForceBehavior(itemID)
@@ -179,7 +160,7 @@ function LS:ShouldRollGreedBlue(link, canGreed)
 	if not self:IsEquipment(link) then
 		return false
 	end
-	if self.db.rollBlueUnusableOnly and IsEquippableItem(link) then
+	if self.db.rollBlueUnusableOnly and not self:IsUnusableEquipment(link) then
 		return false
 	end
 

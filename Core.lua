@@ -4,7 +4,47 @@ LuhUtilities = LuhUtilities or {}
 local LS = LuhUtilities
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.3.1"
+LS.VERSION = "1.3.2"
+
+local ARMOR_TYPES = {
+	cloth = true,
+	leather = true,
+	mail = true,
+	plate = true,
+}
+
+local soulboundPatterns
+
+local function GetSoulboundPatterns()
+	if not soulboundPatterns then
+		soulboundPatterns = {}
+		if ITEM_SOULBOUND then
+			table.insert(soulboundPatterns, ITEM_SOULBOUND)
+		end
+		table.insert(soulboundPatterns, "Soulbound")
+	end
+	return soulboundPatterns
+end
+
+local function GetPlayerArmorTypes()
+	local _, class = UnitClass("player")
+	class = class or ""
+	local level = UnitLevel("player")
+
+	if class == "WARRIOR" or class == "PALADIN" or class == "DEATHKNIGHT" then
+		return ARMOR_TYPES
+	end
+	if class == "HUNTER" or class == "SHAMAN" then
+		if level >= 40 then
+			return { cloth = true, leather = true, mail = true }
+		end
+		return { cloth = true, leather = true }
+	end
+	if class == "ROGUE" or class == "DRUID" then
+		return { cloth = true, leather = true }
+	end
+	return { cloth = true }
+end
 
 local QUALITY_POOR = 0
 local QUALITY_COMMON = 1
@@ -198,7 +238,7 @@ function LS:GetFilteredList(list, searchText)
 	return results
 end
 
-function LS:ScanTooltip(bag, slot, patterns)
+function LS:ScanTooltip(bag, slot, patterns, link)
 	local tooltip = LuhUtilitiesScanTooltip
 	if not tooltip then
 		return false
@@ -206,7 +246,17 @@ function LS:ScanTooltip(bag, slot, patterns)
 
 	tooltip:SetOwner(UIParent, "ANCHOR_NONE")
 	tooltip:ClearLines()
-	tooltip:SetBagItem(bag, slot)
+
+	if bag ~= nil and slot ~= nil then
+		tooltip:SetBagItem(bag, slot)
+	end
+
+	if tooltip:NumLines() == 0 and link then
+		tooltip:ClearLines()
+		tooltip:SetHyperlink(link)
+	end
+
+	tooltip:Show()
 
 	local tooltipName = tooltip:GetName()
 	for i = 1, tooltip:NumLines() do
@@ -229,6 +279,46 @@ function LS:ScanTooltip(bag, slot, patterns)
 	return false
 end
 
+function LS:GetArmorType(link)
+	local _, _, _, _, _, itemType, itemSubType = GetItemInfo(link)
+	if itemType ~= "Armor" or not itemSubType then
+		return nil
+	end
+	local armorType = itemSubType:lower()
+	if ARMOR_TYPES[armorType] then
+		return armorType
+	end
+	return nil
+end
+
+function LS:CanPlayerEquipItem(link)
+	local itemID = self:GetItemIDFromLink(link)
+	if itemID and IsEquippableItem(itemID) == 1 then
+		return true
+	end
+	if link and IsEquippableItem(link) == 1 then
+		return true
+	end
+	return false
+end
+
+function LS:IsArmorTypeUsableByPlayer(armorType)
+	if not armorType then
+		return true
+	end
+	local allowed = GetPlayerArmorTypes()
+	return allowed[armorType] == true
+end
+
+function LS:GetBagItemQuality(bag, slot, link)
+	local _, _, quality = GetItemInfo(link)
+	if quality ~= nil then
+		return quality
+	end
+	local _, _, _, qualityFromBag = GetContainerItemInfo(bag, slot)
+	return qualityFromBag
+end
+
 function LS:IsQuestItem(link)
 	local _, _, _, _, _, itemType = GetItemInfo(link)
 	return itemType == "Quest"
@@ -247,15 +337,22 @@ function LS:IsEquipment(link)
 	return true
 end
 
-function LS:IsSoulbound(bag, slot)
-	return self:ScanTooltip(bag, slot, { "Soulbound" })
+function LS:IsSoulbound(bag, slot, link)
+	link = link or GetContainerItemLink(bag, slot)
+	return self:ScanTooltip(bag, slot, GetSoulboundPatterns(), link)
 end
 
 function LS:IsUnusableEquipment(link)
 	if not self:IsEquipment(link) then
 		return false
 	end
-	return not IsEquippableItem(link)
+
+	local armorType = self:GetArmorType(link)
+	if armorType and not self:IsArmorTypeUsableByPlayer(armorType) then
+		return true
+	end
+
+	return not self:CanPlayerEquipItem(link)
 end
 
 function LS:IsProtectedItem(bag, slot, link)
@@ -309,6 +406,7 @@ function LS:ShouldSellItem(bag, slot)
 	end
 
 	local _, _, quality = GetItemInfo(link)
+	quality = quality or self:GetBagItemQuality(bag, slot, link)
 
 	if db.sellGrey and quality == QUALITY_POOR then
 		return true
@@ -318,11 +416,11 @@ function LS:ShouldSellItem(bag, slot)
 		return true
 	end
 
-	if db.sellGreenSoulboundEquip and quality == QUALITY_UNCOMMON and self:IsEquipment(link) and self:IsSoulbound(bag, slot) then
+	if db.sellGreenSoulboundEquip and quality == QUALITY_UNCOMMON and self:IsEquipment(link) and self:IsSoulbound(bag, slot, link) then
 		return true
 	end
 
-	if db.sellBlueSoulboundNonEquip and quality == QUALITY_RARE and self:IsSoulbound(bag, slot) and self:IsUnusableEquipment(link) then
+	if db.sellBlueSoulboundNonEquip and quality == QUALITY_RARE and self:IsSoulbound(bag, slot, link) and self:IsUnusableEquipment(link) then
 		return true
 	end
 
