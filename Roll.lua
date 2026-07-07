@@ -237,6 +237,61 @@ function LS:ResolveRoll(rollID)
 	return nil
 end
 
+function LS:PrintRollMessage(rollID, rollType)
+	if not self.db.showChat then
+		return
+	end
+	local link = GetLootRollItemLink(rollID)
+	local label = "Pass"
+	for behavior, value in pairs(BEHAVIOR_TO_ROLL) do
+		if value == rollType then
+			label = LS.ROLL_BEHAVIOR_LABELS[behavior] or behavior
+			break
+		end
+	end
+	self:Print("Rolled " .. label .. " on " .. (link or "item") .. ".")
+end
+
+function LS:ClearPendingRoll(rollID)
+	if self.pendingRollConfirm then
+		self.pendingRollConfirm[rollID] = nil
+	end
+end
+
+function LS:OnConfirmLootRoll(_, rollID, rollType)
+	rollType = tonumber(rollType)
+	if not self.pendingRollConfirm or self.pendingRollConfirm[rollID] ~= rollType then
+		return
+	end
+
+	ConfirmLootRoll(rollID, rollType)
+	if StaticPopup_Hide then
+		StaticPopup_Hide("CONFIRM_LOOT_ROLL")
+	end
+
+	self:ClearPendingRoll(rollID)
+	self:PrintRollMessage(rollID, rollType)
+end
+
+function LS:OnConfirmDisenchantRoll(_, rollID, rollType)
+	rollType = tonumber(rollType) or LS.ROLL_DE
+	if not self.pendingRollConfirm or self.pendingRollConfirm[rollID] ~= LS.ROLL_DE then
+		return
+	end
+
+	ConfirmLootRoll(rollID, rollType)
+	if StaticPopup_Hide then
+		StaticPopup_Hide("CONFIRM_DISENCHANT_ROLL")
+	end
+
+	self:ClearPendingRoll(rollID)
+	self:PrintRollMessage(rollID, rollType)
+end
+
+function LS:OnCancelLootRoll(_, rollID)
+	self:ClearPendingRoll(rollID)
+end
+
 function LS:PerformRoll(rollID, rollType)
 	if rollType == nil then
 		return
@@ -245,19 +300,27 @@ function LS:PerformRoll(rollID, rollType)
 		return
 	end
 
+	self.pendingRollConfirm = self.pendingRollConfirm or {}
+	self.pendingRollConfirm[rollID] = rollType
+
 	RollOnLoot(rollID, rollType)
 
-	if self.db.showChat then
-		local link = GetLootRollItemLink(rollID)
-		local label = "Pass"
-		for behavior, value in pairs(BEHAVIOR_TO_ROLL) do
-			if value == rollType then
-				label = LS.ROLL_BEHAVIOR_LABELS[behavior] or behavior
-				break
-			end
+	-- Rolls that do not bind on loot skip the confirm event.
+	local frame = CreateFrame("Frame")
+	frame.rollID = rollID
+	frame.rollType = rollType
+	frame.elapsed = 0
+	frame:SetScript("OnUpdate", function(f, elapsed)
+		f.elapsed = f.elapsed + elapsed
+		if f.elapsed < 0.15 then
+			return
 		end
-		self:Print("Rolled " .. label .. " on " .. (link or "item") .. ".")
-	end
+		f:SetScript("OnUpdate", nil)
+		if LS.pendingRollConfirm and LS.pendingRollConfirm[f.rollID] == f.rollType then
+			LS:ClearPendingRoll(f.rollID)
+			LS:PrintRollMessage(f.rollID, f.rollType)
+		end
+	end)
 end
 
 function LS:ScheduleRoll(rollID)
@@ -291,9 +354,18 @@ function LS:InitRoll()
 
 	self.rollFrame = CreateFrame("Frame")
 	self.rollFrame:RegisterEvent("START_LOOT_ROLL")
+	self.rollFrame:RegisterEvent("CONFIRM_LOOT_ROLL")
+	self.rollFrame:RegisterEvent("CONFIRM_DISENCHANT_ROLL")
+	self.rollFrame:RegisterEvent("CANCEL_LOOT_ROLL")
 	self.rollFrame:SetScript("OnEvent", function(_, event, ...)
 		if event == "START_LOOT_ROLL" then
 			LS:OnStartLootRoll(event, ...)
+		elseif event == "CONFIRM_LOOT_ROLL" then
+			LS:OnConfirmLootRoll(event, ...)
+		elseif event == "CONFIRM_DISENCHANT_ROLL" then
+			LS:OnConfirmDisenchantRoll(event, ...)
+		elseif event == "CANCEL_LOOT_ROLL" then
+			LS:OnCancelLootRoll(event, ...)
 		end
 	end)
 end

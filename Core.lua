@@ -4,7 +4,7 @@ LuhUtilities = LuhUtilities or {}
 local LS = LuhUtilities
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.3.0"
+LS.VERSION = "1.3.1"
 
 local QUALITY_POOR = 0
 local QUALITY_COMMON = 1
