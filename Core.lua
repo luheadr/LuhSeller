@@ -1,10 +1,10 @@
-local ADDON_NAME = "LuhSeller"
+local ADDON_NAME = "LuhUtilities"
 
-LuhSeller = LuhSeller or {}
-local LS = LuhSeller
+LuhUtilities = LuhUtilities or {}
+local LS = LuhUtilities
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.1.2"
+LS.VERSION = "1.3.0"
 
 local QUALITY_POOR = 0
 local QUALITY_COMMON = 1
@@ -43,7 +43,7 @@ local function CopyDefaults(src, dest)
 end
 
 function LS:Print(msg)
-	DEFAULT_CHAT_FRAME:AddMessage("|cff00ccffLuhSeller:|r " .. tostring(msg))
+	DEFAULT_CHAT_FRAME:AddMessage("|cff00ccffLuhUtilities:|r " .. tostring(msg))
 end
 
 function LS:FormatMoney(copper)
@@ -199,7 +199,7 @@ function LS:GetFilteredList(list, searchText)
 end
 
 function LS:ScanTooltip(bag, slot, patterns)
-	local tooltip = LuhSellerScanTooltip
+	local tooltip = LuhUtilitiesScanTooltip
 	if not tooltip then
 		return false
 	end
@@ -462,19 +462,21 @@ eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("MERCHANT_SHOW")
 eventFrame:SetScript("OnEvent", function(_, event, arg1)
 	if event == "ADDON_LOADED" and arg1 == ADDON_NAME then
-		LuhSellerDB = CopyDefaults(defaults, LuhSellerDB)
-		LS.db = LuhSellerDB
+		if LuhUtilitiesDB == nil and LuhSellerDB ~= nil then
+			LuhUtilitiesDB = LuhSellerDB
+		end
+		LuhUtilitiesDB = CopyDefaults(defaults, LuhUtilitiesDB)
+		LS.db = LuhUtilitiesDB
+		LS:InitRoll()
 		LS:InitUI()
 		LS:InitMinimap()
-		LS:Print("Loaded v" .. LS.VERSION .. ". Type /ls for settings.")
+		LS:Print("Loaded v" .. LS.VERSION .. ". Type /lu for settings.")
 	elseif event == "MERCHANT_SHOW" then
 		LS:OnMerchantOpen()
 	end
 end)
 
-SLASH_LUHSELLER1 = "/luhseller"
-SLASH_LUHSELLER2 = "/ls"
-SlashCmdList["LUHSELLER"] = function(msg)
+local function SlashHandler(msg)
 	msg = (msg or ""):lower()
 	if msg == "toggle" then
 		LS:ToggleEnabled()
@@ -486,3 +488,11 @@ SlashCmdList["LUHSELLER"] = function(msg)
 		LS:ToggleUI()
 	end
 end
+
+SLASH_LUHUTILITIES1 = "/luhutilities"
+SLASH_LUHUTILITIES2 = "/lu"
+SlashCmdList["LUHUTILITIES"] = SlashHandler
+
+SLASH_LUHSELLER1 = "/luhseller"
+SLASH_LUHSELLER2 = "/ls"
+SlashCmdList["LUHSELLER"] = SlashHandler

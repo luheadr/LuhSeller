@@ -1,10 +1,10 @@
-local LS = LuhSeller
+local LS = LuhUtilities
 
 local UI = {}
 LS.UI = UI
 
-local PANEL_WIDTH = 520
-local PANEL_HEIGHT = 480
+local PANEL_WIDTH = 530
+local PANEL_HEIGHT = 540
 local ROW_HEIGHT = 20
 local LIST_ROWS = 9
 local FOOTER_HEIGHT = 78
@@ -17,6 +17,7 @@ local QUALITY_COLORS = {
 	white = "ffffff",
 	green = "1eff00",
 	blue = "0070dd",
+	purple = "a335ee",
 }
 
 local function CreateCheckbox(parent, label, x, y, onClick)
@@ -329,6 +330,8 @@ function UI:RefreshListPanel(panel)
 			if entry then
 				if panel.isRestockPanel then
 					row.text:SetText(string.format("[%d] %s  (x%d)", entry.id, entry.name or "Unknown", entry.quantity or 1))
+				elseif panel.isRollRulesPanel then
+					row.text:SetText(string.format("[%d] %s  -> %s", entry.id, entry.name or "Unknown", (entry.behavior or "?"):upper()))
 				else
 					row.text:SetText(string.format("[%d] %s", entry.id, entry.name or "Unknown"))
 				end
@@ -390,6 +393,269 @@ function UI:AddRestockEntry(panel)
 	end
 end
 
+function UI:AddRollRuleEntry(panel)
+	local text = panel.addBox:GetText()
+	local itemID, itemName = LS:ResolveItemInput(text)
+	if not itemID then
+		LS:Print("Could not resolve item. Use a link, numeric ID, or exact item name from your bags.")
+		return
+	end
+
+	local ok, err = LS:AddToRollForceList(itemID, itemName, panel.selectedBehavior)
+	if ok then
+		panel.addBox:SetText("")
+		panel.selectedID = itemID
+		UI:RefreshListPanel(panel)
+		LS:Print("Added " .. (itemName or itemID) .. " to roll rules (" .. (panel.selectedBehavior or "greed") .. ").")
+	else
+		LS:Print(err)
+	end
+end
+
+function UI:CycleRollBehavior(panel)
+	local behaviors = LS.ROLL_BEHAVIORS
+	local current = panel.selectedBehavior or "greed"
+	local index = 1
+	for i, behavior in ipairs(behaviors) do
+		if behavior == current then
+			index = i
+			break
+		end
+	end
+	index = (index % #behaviors) + 1
+	panel.selectedBehavior = behaviors[index]
+	panel.behaviorButton:SetText(LS.ROLL_BEHAVIOR_LABELS[panel.selectedBehavior] or panel.selectedBehavior)
+end
+
+function UI:CreateRollRulesPanel(parent, name)
+	local panel = CreateFrame("Frame", nil, parent)
+	panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
+	panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	panel:Hide()
+
+	panel.selectedID = nil
+	panel.searchText = ""
+	panel.listName = "roll rules"
+	panel.isRollRulesPanel = true
+	panel.selectedBehavior = "greed"
+
+	local searchLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	searchLabel:SetPoint("TOPLEFT", 0, 0)
+	searchLabel:SetText("Search")
+
+	panel.searchBox = CreateSearchBox(panel, 220, 0, -16, function(text)
+		panel.searchText = text
+		UI:RefreshListPanel(panel)
+	end)
+
+	local scrollFrame = CreateFrame("ScrollFrame", name .. "Scroll", panel, "FauxScrollFrameTemplate")
+	scrollFrame:SetPoint("TOPLEFT", 0, -40)
+	scrollFrame:SetPoint("BOTTOMRIGHT", -28, FOOTER_HEIGHT + 12)
+	panel.scrollFrame = scrollFrame
+
+	panel.rows = {}
+	for i = 1, LIST_ROWS do
+		local row = CreateFrame("Button", nil, panel)
+		row:SetHeight(ROW_HEIGHT)
+		row:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 4, -((i - 1) * ROW_HEIGHT))
+		row:SetPoint("RIGHT", scrollFrame, "RIGHT", -4, 0)
+		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+
+		row.text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		row.text:SetPoint("LEFT", 4, 0)
+		row.text:SetPoint("RIGHT", -4, 0)
+		row.text:SetJustifyH("LEFT")
+
+		row.index = i
+		row:SetScript("OnClick", function(self)
+			local filtered = LS:GetFilteredList(panel.listRef, panel.searchText)
+			local offset = FauxScrollFrame_GetOffset(scrollFrame)
+			local entry = filtered[offset + self.index]
+			if entry then
+				panel.selectedID = entry.id
+				UI:RefreshListPanel(panel)
+			end
+		end)
+
+		panel.rows[i] = row
+	end
+
+	local footer = CreateFrame("Frame", nil, panel)
+	footer:SetPoint("BOTTOMLEFT", 0, 0)
+	footer:SetPoint("BOTTOMRIGHT", 0, 0)
+	footer:SetHeight(FOOTER_HEIGHT + 8)
+	panel.footer = footer
+
+	local hint = footer:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	hint:SetPoint("TOPLEFT", 0, -2)
+	hint:SetWidth(490)
+	hint:SetJustifyH("LEFT")
+	hint:SetText("Force roll: Need / Greed / Pass / DE. Drag item or enter link / ID / name.")
+
+	panel.addBox = CreateEditBox(footer, 200, 0, -22)
+	panel.behaviorButton = CreateButton(footer, "Greed", 60, 210, -22, function()
+		UI:CycleRollBehavior(panel)
+	end)
+	panel.addButton = CreateButton(footer, "Add", 60, 280, -22, function()
+		UI:AddRollRuleEntry(panel)
+	end)
+	panel.removeButton = CreateButton(footer, "Remove", 70, 350, -22, function()
+		UI:RemoveListEntry(panel)
+	end)
+
+	scrollFrame:SetScript("OnVerticalScroll", function(self, offset)
+		FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, function()
+			UI:RefreshListPanel(panel)
+		end)
+	end)
+
+	return panel
+end
+
+function UI:CreateRollSettingsPanel(parent)
+	local panel = CreateFrame("Frame", nil, parent)
+	panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
+	panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	panel:Hide()
+
+	local y = -4
+	panel.rollEnabled = CreateCheckbox(panel, "Enable auto-roll in groups", 0, y, function(checked)
+		LS.db.rollEnabled = checked
+	end)
+	y = y - 26
+
+	local greenTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	greenTitle:SetPoint("TOPLEFT", 0, y)
+	greenTitle:SetText("|cff" .. QUALITY_COLORS.green .. "Green|r items")
+	y = y - 22
+
+	panel.rollGreenEnabled = CreateCheckbox(panel, "Auto-roll green items", 8, y, function(checked)
+		LS.db.rollGreenEnabled = checked
+	end)
+	y = y - 24
+
+	panel.rollGreenPriorityBtn = CreateButton(panel, "Priority: DE first", 200, 220, y, function()
+		local order = { "de", "greed", "greed_only" }
+		local labels = {
+			de = "Priority: DE first",
+			greed = "Priority: Greed first",
+			greed_only = "Priority: Greed only (no DE)",
+		}
+		local current = LS.db.rollGreenPriority or "de"
+		local index = 1
+		for i, value in ipairs(order) do
+			if value == current then
+				index = i
+				break
+			end
+		end
+		index = (index % #order) + 1
+		LS.db.rollGreenPriority = order[index]
+		panel.rollGreenPriorityBtn:SetText(labels[order[index]])
+	end)
+	y = y - 30
+
+	local blueTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	blueTitle:SetPoint("TOPLEFT", 0, y)
+	blueTitle:SetText("|cff" .. QUALITY_COLORS.blue .. "Blue|r equipment")
+	y = y - 22
+
+	panel.rollBlueEnabled = CreateCheckbox(panel, "Auto-greed blue equipment", 8, y, function(checked)
+		LS.db.rollBlueEnabled = checked
+	end)
+	y = y - 24
+	panel.rollBlueUnusableOnly = CreateCheckbox(panel, "Only when you cannot equip it", 8, y, function(checked)
+		LS.db.rollBlueUnusableOnly = checked
+	end)
+	y = y - 24
+
+	local armorLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	armorLabel:SetPoint("TOPLEFT", 8, y)
+	armorLabel:SetText("Armor types:")
+	y = y - 20
+
+	panel.rollBlueCloth = CreateCheckbox(panel, "Cloth", 16, y, function(checked)
+		LS.db.rollBlueArmor = LS.db.rollBlueArmor or {}
+		LS.db.rollBlueArmor.cloth = checked
+	end)
+	panel.rollBlueLeather = CreateCheckbox(panel, "Leather", 120, y, function(checked)
+		LS.db.rollBlueArmor = LS.db.rollBlueArmor or {}
+		LS.db.rollBlueArmor.leather = checked
+	end)
+	panel.rollBlueMail = CreateCheckbox(panel, "Mail", 230, y, function(checked)
+		LS.db.rollBlueArmor = LS.db.rollBlueArmor or {}
+		LS.db.rollBlueArmor.mail = checked
+	end)
+	panel.rollBluePlate = CreateCheckbox(panel, "Plate", 340, y, function(checked)
+		LS.db.rollBlueArmor = LS.db.rollBlueArmor or {}
+		LS.db.rollBlueArmor.plate = checked
+	end)
+	y = y - 30
+
+	local epicTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	epicTitle:SetPoint("TOPLEFT", 0, y)
+	epicTitle:SetText("|cff" .. QUALITY_COLORS.purple .. "Epic|r items")
+	y = y - 22
+
+	panel.rollEpicDEUnusable = CreateQualityCheckbox(
+		panel,
+		QUALITY_COLORS.purple,
+		"epic",
+		" equipment you can't use (DE)",
+		8,
+		y,
+		function(checked)
+			LS.db.rollEpicDEUnusable = checked
+		end
+	)
+	y = y - 30
+
+	local recipeTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	recipeTitle:SetPoint("TOPLEFT", 0, y)
+	recipeTitle:SetText("Recipes")
+	y = y - 22
+
+	panel.rollRecipeNeedUsable = CreateCheckbox(panel, "Need on recipes you can learn", 8, y, function(checked)
+		LS.db.rollRecipeNeedUsable = checked
+	end)
+	y = y - 24
+	panel.rollRecipeGreedUnusable = CreateCheckbox(panel, "Greed on recipes you cannot use", 8, y, function(checked)
+		LS.db.rollRecipeGreedUnusable = checked
+	end)
+	y = y - 30
+
+	local help = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	help:SetPoint("TOPLEFT", 0, y)
+	help:SetWidth(480)
+	help:SetJustifyH("LEFT")
+	help:SetText(
+		"Roll rules list overrides everything. If nothing matches, you roll manually.\n"
+			.. "Green: DE first by default, or choose Greed first / Greed only (no DE)."
+	)
+
+	panel.Refresh = function()
+		panel.rollEnabled:SetChecked(LS.db.rollEnabled)
+		panel.rollGreenEnabled:SetChecked(LS.db.rollGreenEnabled)
+		panel.rollBlueEnabled:SetChecked(LS.db.rollBlueEnabled)
+		panel.rollBlueUnusableOnly:SetChecked(LS.db.rollBlueUnusableOnly)
+		panel.rollBlueCloth:SetChecked(LS.db.rollBlueArmor and LS.db.rollBlueArmor.cloth)
+		panel.rollBlueLeather:SetChecked(LS.db.rollBlueArmor and LS.db.rollBlueArmor.leather)
+		panel.rollBlueMail:SetChecked(LS.db.rollBlueArmor and LS.db.rollBlueArmor.mail)
+		panel.rollBluePlate:SetChecked(LS.db.rollBlueArmor and LS.db.rollBlueArmor.plate)
+		panel.rollRecipeNeedUsable:SetChecked(LS.db.rollRecipeNeedUsable)
+		panel.rollRecipeGreedUnusable:SetChecked(LS.db.rollRecipeGreedUnusable)
+		panel.rollEpicDEUnusable:SetChecked(LS.db.rollEpicDEUnusable)
+		local labels = {
+			de = "Priority: DE first",
+			greed = "Priority: Greed first",
+			greed_only = "Priority: Greed only (no DE)",
+		}
+		panel.rollGreenPriorityBtn:SetText(labels[LS.db.rollGreenPriority or "de"] or labels.de)
+	end
+
+	return panel
+end
+
 function UI:RemoveListEntry(panel)
 	if not panel.selectedID then
 		LS:Print("Select an item from the list to remove.")
@@ -407,11 +673,15 @@ function UI:ShowTab(frame, tabName)
 	frame.whitelistPanel:Hide()
 	frame.sellListPanel:Hide()
 	frame.restockPanel:Hide()
+	frame.rollPanel:Hide()
+	frame.rollRulesPanel:Hide()
 
 	SetTabSelected(frame.tabSettings, tabName == "settings")
 	SetTabSelected(frame.tabWhitelist, tabName == "whitelist")
 	SetTabSelected(frame.tabSellList, tabName == "selllist")
 	SetTabSelected(frame.tabRestock, tabName == "restock")
+	SetTabSelected(frame.tabRoll, tabName == "roll")
+	SetTabSelected(frame.tabRollRules, tabName == "rollrules")
 
 	if tabName == "settings" then
 		frame.settingsPanel:Show()
@@ -421,9 +691,17 @@ function UI:ShowTab(frame, tabName)
 	elseif tabName == "selllist" then
 		frame.sellListPanel:Show()
 		UI:RefreshListPanel(frame.sellListPanel)
-	else
+	elseif tabName == "restock" then
 		frame.restockPanel:Show()
 		UI:RefreshListPanel(frame.restockPanel)
+	elseif tabName == "roll" then
+		frame.rollPanel:Show()
+		if frame.rollPanel.Refresh then
+			frame.rollPanel:Refresh()
+		end
+	else
+		frame.rollRulesPanel:Show()
+		UI:RefreshListPanel(frame.rollRulesPanel)
 	end
 end
 
@@ -432,7 +710,7 @@ function LS:InitUI()
 		return
 	end
 
-	local frame = CreateFrame("Frame", "LuhSellerOptionsFrame", UIParent)
+	local frame = CreateFrame("Frame", "LuhUtilitiesOptionsFrame", UIParent)
 	frame:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
 	frame:SetPoint("CENTER")
 	frame:SetBackdrop({
@@ -455,7 +733,7 @@ function LS:InitUI()
 
 	local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 	title:SetPoint("TOP", 0, -16)
-	title:SetText("LuhSeller")
+	title:SetText("LuhUtilities")
 
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", -6, -6)
@@ -468,7 +746,7 @@ function LS:InitUI()
 		tile = false,
 	}
 
-	local TAB_WIDTH = 96
+	local TAB_WIDTH = 76
 	local function MakeTab(label, index, tabName)
 		local tab = CreateFrame("Button", nil, frame)
 		tab:SetSize(TAB_WIDTH, TAB_HEIGHT)
@@ -486,8 +764,10 @@ function LS:InitUI()
 
 	frame.tabSettings = MakeTab("Settings", 1, "settings")
 	frame.tabWhitelist = MakeTab("Whitelist", 2, "whitelist")
-	frame.tabSellList = MakeTab("Sell List", 3, "selllist")
+	frame.tabSellList = MakeTab("Sell", 3, "selllist")
 	frame.tabRestock = MakeTab("Restock", 4, "restock")
+	frame.tabRoll = MakeTab("Roll", 5, "roll")
+	frame.tabRollRules = MakeTab("Roll List", 6, "rollrules")
 
 	frame.settingsPanel = CreateFrame("Frame", nil, frame)
 	frame.settingsPanel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
@@ -545,17 +825,21 @@ function LS:InitUI()
 	help:SetText(
 		"Priority: whitelist blocks selling, sell list always sells (unless whitelisted), then checkbox rules apply.\n\n"
 			.. "Safety: quest items, keys, and items with no vendor price are never sold.\n\n"
-			.. "Slash: /ls | /ls toggle | /ls sell | /ls restock"
+			.. "Slash: /lu | /ls | /lu toggle | /lu sell | /lu restock"
 	)
 
-	frame.whitelistPanel = UI:CreateListPanel(frame, "LuhSellerWhitelist", "whitelist")
+	frame.whitelistPanel = UI:CreateListPanel(frame, "LuhUtilitiesWhitelist", "whitelist")
 	frame.whitelistPanel.listRef = LS.db.whitelist
 
-	frame.sellListPanel = UI:CreateListPanel(frame, "LuhSellerSellList", "sell list")
+	frame.sellListPanel = UI:CreateListPanel(frame, "LuhUtilitiesSellList", "sell list")
 	frame.sellListPanel.listRef = LS.db.sellList
 
-	frame.restockPanel = UI:CreateRestockPanel(frame, "LuhSellerRestock")
+	frame.restockPanel = UI:CreateRestockPanel(frame, "LuhUtilitiesRestock")
 	frame.restockPanel.listRef = LS.db.restockList
+
+	frame.rollPanel = UI:CreateRollSettingsPanel(frame)
+	frame.rollRulesPanel = UI:CreateRollRulesPanel(frame, "LuhUtilitiesRollRules")
+	frame.rollRulesPanel.listRef = LS.db.rollForceList
 
 	UI:ShowTab(frame, "settings")
 	self:RefreshUI()
@@ -578,9 +862,14 @@ function LS:RefreshUI()
 	f.whitelistPanel.listRef = self.db.whitelist
 	f.sellListPanel.listRef = self.db.sellList
 	f.restockPanel.listRef = self.db.restockList
+	f.rollRulesPanel.listRef = self.db.rollForceList
 	UI:RefreshListPanel(f.whitelistPanel)
 	UI:RefreshListPanel(f.sellListPanel)
 	UI:RefreshListPanel(f.restockPanel)
+	UI:RefreshListPanel(f.rollRulesPanel)
+	if f.rollPanel and f.rollPanel.Refresh then
+		f.rollPanel:Refresh()
+	end
 end
 
 function LS:ToggleUI()
@@ -600,7 +889,7 @@ function LS:InitMinimap()
 		return
 	end
 
-	local button = CreateFrame("Button", "LuhSellerMinimapButton", Minimap)
+	local button = CreateFrame("Button", "LuhUtilitiesMinimapButton", Minimap)
 	button:SetSize(32, 32)
 	button:SetFrameStrata("MEDIUM")
 	button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
@@ -626,7 +915,7 @@ function LS:InitMinimap()
 
 	button:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-		GameTooltip:SetText("LuhSeller")
+		GameTooltip:SetText("LuhUtilities")
 		GameTooltip:AddLine("Left-click: settings", 1, 1, 1)
 		GameTooltip:AddLine("Right-click: toggle auto-sell", 1, 1, 1)
 		GameTooltip:Show()
