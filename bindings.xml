@@ -1,0 +1,8 @@
+<Bindings>
+	<Binding name="LUHMOUNT" header="LUHMOUNT_HEADER">
+	</Binding>
+	<Binding name="LUHMOUNT_GROUND">
+	</Binding>
+	<Binding name="LUHMOUNT_PASSENGER">
+	</Binding>
+</Bindings>

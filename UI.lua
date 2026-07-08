@@ -668,6 +668,259 @@ function UI:RemoveListEntry(panel)
 	end
 end
 
+local MACRO_LINE_ROWS = 4
+
+function UI:RefreshMacroLinePanel(panel)
+	if not panel or not panel.listRef then
+		return
+	end
+	local list = panel.listRef
+	local scrollFrame = panel.scrollFrame
+	local offset = FauxScrollFrame_GetOffset(scrollFrame)
+	local total = #list
+	FauxScrollFrame_Update(scrollFrame, total, MACRO_LINE_ROWS, ROW_HEIGHT)
+
+	for i = 1, MACRO_LINE_ROWS do
+		local row = panel.rows[i]
+		local index = offset + i
+		local line = list[index]
+		if line then
+			row.text:SetText(line)
+			if panel.selectedIndex == index then
+				row.text:SetTextColor(1, 1, 0)
+			else
+				row.text:SetTextColor(1, 1, 1)
+			end
+			row:Show()
+		else
+			row:Hide()
+		end
+	end
+end
+
+function UI:AddMacroLine(panel)
+	local text = LS:Trim(panel.addBox:GetText() or "")
+	if text == "" then
+		LS:Print("Enter a macro line to add.")
+		return
+	end
+	table.insert(panel.listRef, text)
+	panel.addBox:SetText("")
+	panel.selectedIndex = nil
+	UI:RefreshMacroLinePanel(panel)
+	if not InCombatLockdown() then
+		for _, button in ipairs({ LuhUtilitiesMountButton, LuhUtilitiesMountButton2, LuhUtilitiesMountButton3 }) do
+			if button then
+				GoGo_FillButton(button)
+			end
+		end
+	end
+end
+
+function UI:RemoveMacroLine(panel)
+	if not panel.selectedIndex then
+		LS:Print("Select a macro line to remove.")
+		return
+	end
+	table.remove(panel.listRef, panel.selectedIndex)
+	panel.selectedIndex = nil
+	UI:RefreshMacroLinePanel(panel)
+end
+
+function UI:CreateMacroLinePanel(parent, name, listKey, anchorPoint, anchorTo, x, y, width, height)
+	local panel = CreateFrame("Frame", nil, parent)
+	panel:SetSize(width, height)
+	panel:SetPoint(anchorPoint, anchorTo, anchorPoint, x, y)
+	panel.listKey = listKey
+	panel.listRef = LS.db.mount[listKey]
+	panel.selectedIndex = nil
+
+	local title = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	title:SetPoint("TOPLEFT", 0, 0)
+	title:SetText(listKey == "customLinesBefore" and "Macro lines before mount" or "Macro lines after mount")
+
+	local scrollFrame = CreateFrame("ScrollFrame", name .. "Scroll", panel, "FauxScrollFrameTemplate")
+	scrollFrame:SetPoint("TOPLEFT", 0, -16)
+	scrollFrame:SetPoint("BOTTOMRIGHT", -24, 44)
+	panel.scrollFrame = scrollFrame
+
+	panel.rows = {}
+	for i = 1, MACRO_LINE_ROWS do
+		local row = CreateFrame("Button", nil, panel)
+		row:SetHeight(ROW_HEIGHT)
+		row:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 2, -((i - 1) * ROW_HEIGHT))
+		row:SetPoint("RIGHT", scrollFrame, "RIGHT", -2, 0)
+		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+		row.text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+		row.text:SetPoint("LEFT", 2, 0)
+		row.text:SetPoint("RIGHT", -2, 0)
+		row.text:SetJustifyH("LEFT")
+		row.index = i
+		row:SetScript("OnClick", function(self)
+			local offset = FauxScrollFrame_GetOffset(scrollFrame)
+			local index = offset + self.index
+			if panel.listRef[index] then
+				panel.selectedIndex = index
+				UI:RefreshMacroLinePanel(panel)
+			end
+		end)
+		panel.rows[i] = row
+	end
+
+	panel.addBox = CreateEditBox(panel, width - 140, 0, -height + 22)
+	panel.addBox:SetMaxLetters(200)
+	CreateButton(panel, "Add", 50, width - 108, -height + 22, function()
+		UI:AddMacroLine(panel)
+	end)
+	CreateButton(panel, "Remove", 60, width - 54, -height + 22, function()
+		UI:RemoveMacroLine(panel)
+	end)
+
+	scrollFrame:SetScript("OnVerticalScroll", function(self, offset)
+		FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, function()
+			UI:RefreshMacroLinePanel(panel)
+		end)
+	end)
+
+	return panel
+end
+
+local function ParseMountFavoriteInput(text)
+	if not text or text == "" then
+		return nil
+	end
+	local link = string.match(text, "|H([^|]+)|h")
+	if link then
+		local _, id = strsplit(":", link)
+		return tonumber(id)
+	end
+	return tonumber(text)
+end
+
+function UI:CreateMountPanel(parent)
+	local panel = CreateFrame("Frame", nil, parent)
+	panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
+	panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	panel:Hide()
+
+	local help = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	help:SetPoint("TOPLEFT", 0, 0)
+	help:SetWidth(500)
+	help:SetJustifyH("LEFT")
+	help:SetText("Set keybinds under Key Bindings > LuhUtilities Mount. Paste mount spell/item links to add favorites.")
+
+	local y = -36
+	panel.autoDismount = CreateCheckbox(panel, "Auto-dismount on taxi / errors", 0, y, function(checked)
+		LS.db.mount.autodismount = checked
+		if GoGo_Panel_UpdateViews then
+			GoGo_Panel_UpdateViews()
+		end
+	end)
+	y = y - 24
+	panel.druidClickForm = CreateCheckbox(panel, "Druid: single click travel forms", 0, y, function(checked)
+		LS.db.mount.DruidClickForm = checked
+	end)
+	y = y - 24
+	panel.druidFlightForm = CreateCheckbox(panel, "Druid: prefer flight forms over mounts", 0, y, function(checked)
+		LS.db.mount.DruidFlightForm = checked
+	end)
+	y = y - 24
+	panel.genericFastFlyer = CreateCheckbox(panel, "Treat 310% and 280% flyers the same", 0, y, function(checked)
+		LS.db.mount.genericfastflyer = checked
+	end)
+	y = y - 24
+	panel.globalPrefMount = CreateCheckbox(panel, "Use global mount favorites (not per-zone)", 0, y, function(checked)
+		LS.db.mount.GlobalPrefMount = checked
+		UI:RefreshMountPanel(panel)
+	end)
+	y = y - 24
+	panel.disableMountNotice = CreateCheckbox(panel, "Disable unknown mount notices", 0, y, function(checked)
+		LS.db.mount.DisableMountNotice = checked
+	end)
+
+	local favLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	favLabel:SetPoint("TOPLEFT", 260, -36)
+	favLabel:SetText("Favorite mounts")
+
+	panel.favBox = CreateEditBox(panel, 180, 260, -52)
+	panel.favBox:SetMaxLetters(120)
+
+	CreateButton(panel, "Add", 50, 448, -52, function()
+		local id = ParseMountFavoriteInput(panel.favBox:GetText())
+		if not id then
+			LS:Print("Paste a mount spell or item link.")
+			return
+		end
+		local ok, err = LS:AddMountFavorite(id)
+		if ok then
+			panel.favBox:SetText("")
+			UI:RefreshMountPanel(panel)
+			LS:Print("Added mount favorite.")
+		else
+			LS:Print(err or "Could not add favorite.")
+		end
+	end)
+
+	CreateButton(panel, "Clear", 50, 448, -78, function()
+		LS:ClearMountFavorites()
+		UI:RefreshMountPanel(panel)
+		LS:Print("Cleared mount favorites.")
+	end)
+
+	panel.favList = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	panel.favList:SetPoint("TOPLEFT", 260, -84)
+	panel.favList:SetWidth(240)
+	panel.favList:SetJustifyH("LEFT")
+	panel.favList:SetText("")
+
+	panel.linesBefore = UI:CreateMacroLinePanel(panel, "LuhMountBefore", "customLinesBefore", "TOPLEFT", panel, 0, -188, 250, 120)
+	panel.linesAfter = UI:CreateMacroLinePanel(panel, "LuhMountAfter", "customLinesAfter", "TOPLEFT", panel, 260, -188, 250, 120)
+
+	return panel
+end
+
+function UI:RefreshMountPanel(panel)
+	if not panel then
+		return
+	end
+	local m = LS.db.mount
+	panel.autoDismount:SetChecked(m.autodismount)
+	panel.druidClickForm:SetChecked(m.DruidClickForm)
+	panel.druidFlightForm:SetChecked(m.DruidFlightForm)
+	panel.genericFastFlyer:SetChecked(m.genericfastflyer)
+	panel.globalPrefMount:SetChecked(m.GlobalPrefMount)
+	panel.disableMountNotice:SetChecked(m.DisableMountNotice)
+
+	panel.linesBefore.listRef = m.customLinesBefore
+	panel.linesAfter.listRef = m.customLinesAfter
+	UI:RefreshMacroLinePanel(panel.linesBefore)
+	UI:RefreshMacroLinePanel(panel.linesAfter)
+
+	local favText = ""
+	if m.GlobalPrefMount then
+		if m.GlobalPrefMounts and GoGo_GetIDName then
+			favText = "Global: " .. (GoGo_GetIDName(m.GlobalPrefMounts) or "?")
+		else
+			favText = "Global: (none)"
+		end
+	else
+		local zone = GetRealZoneText() or "?"
+		local zoneFavs = m[zone]
+		if zoneFavs and GoGo_GetIDName then
+			favText = zone .. ": " .. GoGo_GetIDName(zoneFavs)
+		else
+			favText = zone .. ": (none)"
+		end
+	end
+	panel.favList:SetText(favText)
+end
+
+function LS:RefreshMountUI()
+	if self.frame and self.frame.mountPanel then
+		UI:RefreshMountPanel(self.frame.mountPanel)
+	end
+end
+
 function UI:ShowTab(frame, tabName)
 	frame.settingsPanel:Hide()
 	frame.whitelistPanel:Hide()
@@ -675,6 +928,7 @@ function UI:ShowTab(frame, tabName)
 	frame.restockPanel:Hide()
 	frame.rollPanel:Hide()
 	frame.rollRulesPanel:Hide()
+	frame.mountPanel:Hide()
 
 	SetTabSelected(frame.tabSettings, tabName == "settings")
 	SetTabSelected(frame.tabWhitelist, tabName == "whitelist")
@@ -682,6 +936,7 @@ function UI:ShowTab(frame, tabName)
 	SetTabSelected(frame.tabRestock, tabName == "restock")
 	SetTabSelected(frame.tabRoll, tabName == "roll")
 	SetTabSelected(frame.tabRollRules, tabName == "rollrules")
+	SetTabSelected(frame.tabMount, tabName == "mount")
 
 	if tabName == "settings" then
 		frame.settingsPanel:Show()
@@ -699,6 +954,9 @@ function UI:ShowTab(frame, tabName)
 		if frame.rollPanel.Refresh then
 			frame.rollPanel:Refresh()
 		end
+	elseif tabName == "mount" then
+		frame.mountPanel:Show()
+		UI:RefreshMountPanel(frame.mountPanel)
 	else
 		frame.rollRulesPanel:Show()
 		UI:RefreshListPanel(frame.rollRulesPanel)
@@ -746,7 +1004,7 @@ function LS:InitUI()
 		tile = false,
 	}
 
-	local TAB_WIDTH = 76
+	local TAB_WIDTH = 68
 	local function MakeTab(label, index, tabName)
 		local tab = CreateFrame("Button", nil, frame)
 		tab:SetSize(TAB_WIDTH, TAB_HEIGHT)
@@ -768,6 +1026,7 @@ function LS:InitUI()
 	frame.tabRestock = MakeTab("Restock", 4, "restock")
 	frame.tabRoll = MakeTab("Roll", 5, "roll")
 	frame.tabRollRules = MakeTab("Roll List", 6, "rollrules")
+	frame.tabMount = MakeTab("Mount", 7, "mount")
 
 	frame.settingsPanel = CreateFrame("Frame", nil, frame)
 	frame.settingsPanel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
@@ -840,6 +1099,7 @@ function LS:InitUI()
 	frame.rollPanel = UI:CreateRollSettingsPanel(frame)
 	frame.rollRulesPanel = UI:CreateRollRulesPanel(frame, "LuhUtilitiesRollRules")
 	frame.rollRulesPanel.listRef = LS.db.rollForceList
+	frame.mountPanel = UI:CreateMountPanel(frame)
 
 	UI:ShowTab(frame, "settings")
 	self:RefreshUI()
@@ -869,6 +1129,9 @@ function LS:RefreshUI()
 	UI:RefreshListPanel(f.rollRulesPanel)
 	if f.rollPanel and f.rollPanel.Refresh then
 		f.rollPanel:Refresh()
+	end
+	if f.mountPanel then
+		UI:RefreshMountPanel(f.mountPanel)
 	end
 end
 

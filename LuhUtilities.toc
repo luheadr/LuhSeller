@@ -1,12 +1,15 @@
 ## Interface: 30300
 ## Title: LuhUtilities
-## Notes: Auto-sell, restock, and group loot rolling for WoW WotLK 3.3.5a.
+## Notes: Auto-sell, restock, group loot rolling, and smart mount for WoW WotLK 3.3.5a.
 ## Author: LuhUtilities
-## Version: 1.3.3
+## Version: 1.4.0
 ## SavedVariablesPerCharacter: LuhUtilitiesDB
 ## X-Category: Interface Enhancements
 
 LuhUtilities.xml
+MountData.lua
+Mount.lua
 Core.lua
 Roll.lua
 UI.lua
+bindings.xml

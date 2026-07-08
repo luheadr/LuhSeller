@@ -4,7 +4,7 @@ LuhUtilities = LuhUtilities or {}
 local LS = LuhUtilities
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.3.2"
+LS.VERSION = "1.4.0"
 
 local ARMOR_TYPES = {
 	cloth = true,
@@ -68,6 +68,21 @@ local defaults = {
 	},
 }
 
+LS.mountDefaults = {
+	version = "1.4.0",
+	autodismount = true,
+	DisableUpdateNotice = true,
+	DisableMountNotice = false,
+	genericfastflyer = false,
+	DruidClickForm = true,
+	DruidFlightForm = false,
+	GlobalPrefMount = false,
+	GlobalPrefMounts = {},
+	UnknownMounts = {},
+	customLinesBefore = {},
+	customLinesAfter = {},
+}
+
 local function CopyDefaults(src, dest)
 	if type(dest) ~= "table" then
 		dest = {}
@@ -81,6 +96,8 @@ local function CopyDefaults(src, dest)
 	end
 	return dest
 end
+
+LS.CopyDefaults = CopyDefaults
 
 function LS:Print(msg)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff00ccffLuhUtilities:|r " .. tostring(msg))
@@ -566,7 +583,14 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
 			LuhUtilitiesDB = LuhSellerDB
 		end
 		LuhUtilitiesDB = CopyDefaults(defaults, LuhUtilitiesDB)
+		if not LuhUtilitiesDB.mount then
+			LuhUtilitiesDB.mount = {}
+		end
+		CopyDefaults(LS.mountDefaults, LuhUtilitiesDB.mount)
 		LS.db = LuhUtilitiesDB
+		if LS.InitMount then
+			LS:InitMount()
+		end
 		LS:InitRoll()
 		LS:InitUI()
 		LS:InitMinimap()
@@ -584,6 +608,11 @@ local function SlashHandler(msg)
 		LS:SellItems()
 	elseif msg == "restock" then
 		LS:RestockItems()
+	elseif msg == "mount" then
+		LS:ToggleUI()
+		if LS.frame and LS.UI then
+			LS.UI:ShowTab(LS.frame, "mount")
+		end
 	else
 		LS:ToggleUI()
 	end

@@ -1,4 +1,47 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
 ..\FrameXML\UI.xsd">
 	<GameTooltip name="LuhUtilitiesScanTooltip" inherits="GameTooltipTemplate" hidden="true"/>
+	<Frame name="LuhUtilitiesMountFrame" parent="UIParent" hidden="true">
+		<Scripts>
+			<OnEvent>
+				GoGo_OnEvent(event)
+			</OnEvent>
+		</Scripts>
+	</Frame>
+	<Button name="LuhUtilitiesMountButton" inherits="SecureActionButtonTemplate" parent="UIParent" frameStrata="LOW" hidden="false">
+		<Attributes>
+			<Attribute name="type" type="string" value="macro"/>
+		</Attributes>
+		<Scripts>
+			<PreClick>
+				GoGo_Variables.SelectPassengerMount = false
+				GoGo_Variables.SkipFlyingMount = nil
+				GoGo_PreClick(this)
+			</PreClick>
+		</Scripts>
+	</Button>
+	<Button name="LuhUtilitiesMountButton2" inherits="SecureActionButtonTemplate" parent="UIParent" frameStrata="LOW" hidden="false">
+		<Attributes>
+			<Attribute name="type" type="string" value="macro"/>
+		</Attributes>
+		<Scripts>
+			<PreClick>
+				GoGo_Variables.SelectPassengerMount = false
+				GoGo_Variables.SkipFlyingMount = true
+				GoGo_PreClick(this)
+			</PreClick>
+		</Scripts>
+	</Button>
+	<Button name="LuhUtilitiesMountButton3" inherits="SecureActionButtonTemplate" parent="UIParent" frameStrata="LOW" hidden="false">
+		<Attributes>
+			<Attribute name="type" type="string" value="macro"/>
+		</Attributes>
+		<Scripts>
+			<PreClick>
+				GoGo_Variables.SelectPassengerMount = true
+				GoGo_Variables.SkipFlyingMount = false
+				GoGo_PreClick(this)
+			</PreClick>
+		</Scripts>
+	</Button>
 </Ui>
