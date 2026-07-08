@@ -4,7 +4,7 @@ LuhUtilities = LuhUtilities or {}
 local LS = LuhUtilities
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.4.3"
+LS.VERSION = "1.4.4"
 
 local ARMOR_TYPES = {
 	cloth = true,
@@ -69,7 +69,7 @@ local defaults = {
 }
 
 LS.mountDefaults = {
-	version = "1.4.3",
+	version = "1.4.4",
 	autodismount = true,
 	DisableUpdateNotice = true,
 	DisableMountNotice = false,
@@ -595,6 +595,9 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
 		LS:InitUI()
 		LS:InitMinimap()
 		LS:Print("Loaded v" .. LS.VERSION .. ". Type /lu for settings.")
+		if not LS.GetCompanionSpellId then
+			LS:Print("Warning: Mount module did not load. Check for Lua errors.")
+		end
 	elseif event == "MERCHANT_SHOW" then
 		LS:OnMerchantOpen()
 	end
@@ -614,7 +617,9 @@ local function SlashHandler(msg)
 			LS.UI:ShowTab(LS.frame, "mount")
 		end
 	elseif msg == "mounttest" then
-		if GoGo_DoPlayerEnteringWorld then
+		if LS.GoGo_DoPlayerEnteringWorld then
+			LS:GoGo_DoPlayerEnteringWorld()
+		elseif GoGo_DoPlayerEnteringWorld then
 			GoGo_DoPlayerEnteringWorld()
 		end
 		local count = GoGo_Variables and GoGo_Variables.MountList and table.getn(GoGo_Variables.MountList) or 0
@@ -623,9 +628,10 @@ local function SlashHandler(msg)
 		local journal = (C_MountJournal and C_MountJournal.GetMountIDs) and "yes" or "no"
 		local key1 = GetBindingKey("LUHMOUNT")
 		LS:Print("Mounts known: " .. count .. " (spells: " .. spellCount .. ", companions API: " .. companionCount .. ", journal: " .. journal .. ")" .. (key1 and (", keybind: " .. key1) or ", no keybind"))
-		if companionCount > 0 and spellCount == 0 and GetCompanionInfo then
+		if companionCount > 0 and GetCompanionInfo then
 			local r1, r2, r3 = GetCompanionInfo("MOUNT", 1)
-			local parsed = GoGo_GetCompanionSpellId and GoGo_GetCompanionSpellId("MOUNT", 1)
+			local getId = LS.GetCompanionSpellId or GoGo_GetCompanionSpellId
+			local parsed = getId and getId("MOUNT", 1)
 			LS:Print("Companion[1] raw: " .. tostring(r1) .. " | " .. tostring(r2) .. " | " .. tostring(r3) .. " => parsed: " .. tostring(parsed))
 		end
 	else

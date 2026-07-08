@@ -9,7 +9,6 @@ MV.Player = MV.Player or {}
 MV.Localize = MV.Localize or { Zone = {}, String = {}, Skill = {} }
 GoGo_Variables = MV
 
-﻿
 ---------
 --function GoGo_Localize()
 ---------
@@ -1063,48 +1062,34 @@ function GoGo_GetCompanionSpellId(companionType, slot)
 	if not GetCompanionInfo then
 		return nil
 	end --if
-	local r1, r2, r3, r4, r5 = GetCompanionInfo(companionType, slot)
+	local r1, r2, r3 = GetCompanionInfo(companionType, slot)
 	if r1 == nil and r2 == nil and r3 == nil then
 		return nil
 	end --if
 
-	-- 3.3.5: name, spellID, icon, active
-	if type(r1) == "string" and type(r2) == "number" then
-		return r2
+	-- creatureID, mountName, spellID (ChromieCraft and similar clients)
+	local spellId = tonumber(r3)
+	if spellId and spellId > 0 and type(r2) == "string" then
+		return spellId
 	end --if
 
-	-- Classic/extended: creatureID, creatureName, creatureSpellID, icon, summoned
-	if type(r2) == "string" and type(r3) == "number" then
-		return r3
+	-- mountName, spellID, icon, active (Wrath 3.3.5)
+	spellId = tonumber(r2)
+	if spellId and spellId > 0 and type(r1) == "string" then
+		return spellId
 	end --if
 
-	-- GoGoMount original used the third return value
-	if type(r3) == "number" and r3 > 0 then
-		return r3
-	end --if
-
-	if type(r2) == "number" and r2 > 0 then
-		return r2
-	end --if
-
-	for _, value in ipairs({r1, r2, r3, r4, r5}) do
-		if type(value) == "string" then
-			local spellId = tonumber(string.match(value, "(%d+)"))
-			if spellId and spellId > 100 then
-				return spellId
+	local mountName = type(r2) == "string" and r2 or (type(r1) == "string" and r1)
+	if mountName then
+		local link = GetSpellLink(mountName)
+		if link then
+			local _, _, idFromLink = string.find(link, "spell:(%d+)")
+			idFromLink = tonumber(idFromLink)
+			if idFromLink then
+				return idFromLink
 			end --if
-			local link = GetSpellLink(value)
-			if link then
-				local _, _, spellIdFromLink = string.find(link, "spell:(%d+)")
-				spellIdFromLink = tonumber(spellIdFromLink)
-				if spellIdFromLink then
-					return spellIdFromLink
-				end --if
-			end --if
-		elseif type(value) == "number" and value > 100 then
-			return value
 		end --if
-	end --for
+	end --if
 
 	return nil
 end --function
@@ -1223,7 +1208,7 @@ function GoGo_BuildMountSpellListFromMountJournal()
 	if not mountIDs then
 		return false
 	end --if
-	for i = 1, #mountIDs do
+	for i = 1, table.getn(mountIDs) do
 		local mountID = mountIDs[i]
 		local _, spellID, _, _, _, _, _, _, _, _, isCollected = C_MountJournal.GetMountInfoByID(mountID)
 		if isCollected and spellID then
@@ -1513,7 +1498,7 @@ function GoGo_FillButton(button, mount)
 	if mount then
 		local macro = LS:BuildMountMacroText(mount)
 		if not macro then
-			if type(mount) == "string" and (mount:find("%[") or mount:find(";")) then
+			if type(mount) == "string" and (string.find(mount, "%[", 1, true) or string.find(mount, ";", 1, true)) then
 				macro = "/cast " .. mount
 			else
 				macro = "/use " .. mount
@@ -2010,7 +1995,9 @@ end
 
 function LS:Trim(s)
     if not s then return "" end
-    return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+    s = string.gsub(s, "^%s+", "")
+    s = string.gsub(s, "%s+$", "")
+    return s
 end
 
 function LS:BuildMountMacroText(mountText)
@@ -2026,9 +2013,9 @@ function LS:BuildMountMacroText(mountText)
     end
     if mountText and mountText ~= "" then
         mountText = tostring(mountText)
-        if mountText:find("[%[%;]") then
+        if string.find(mountText, "%[") or string.find(mountText, ";") then
             table.insert(lines, "/cast " .. mountText)
-        elseif mountText:find(",") then
+        elseif string.find(mountText, ",") then
             for part in string.gmatch(mountText, "[^,]+") do
                 part = self:Trim(part)
                 if part ~= "" then
@@ -2076,3 +2063,6 @@ function LS:ClearMountFavorites()
         end
     end
 end
+
+LS.GetCompanionSpellId = GoGo_GetCompanionSpellId
+LS.GoGo_DoPlayerEnteringWorld = GoGo_DoPlayerEnteringWorld
