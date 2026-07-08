@@ -510,15 +510,17 @@ function LS:RestockItems()
 		if need > 0 then
 			local merchantIndex = self:FindMerchantItemIndex(entry.id)
 			if merchantIndex then
-				local _, _, _, _, numAvailable = GetMerchantItemInfo(merchantIndex)
-				local buyQty = need
+				local _, _, _, stackSize, numAvailable = GetMerchantItemInfo(merchantIndex)
+				stackSize = stackSize or 1
+				local stacksToBuy = math.ceil(need / stackSize)
 				if numAvailable and numAvailable > 0 then
-					buyQty = math.min(need, numAvailable)
+					stacksToBuy = math.min(stacksToBuy, numAvailable)
 				end
-				if buyQty > 0 then
-					BuyMerchantItem(merchantIndex, buyQty)
+				if stacksToBuy > 0 then
+					BuyMerchantItem(merchantIndex, stacksToBuy)
 					if self.db.showChat then
-						self:Print("Bought " .. buyQty .. "x " .. (entry.name or entry.id))
+						local itemsBought = stacksToBuy * stackSize
+						self:Print("Bought " .. itemsBought .. "x " .. (entry.name or entry.id))
 					end
 				end
 			end
