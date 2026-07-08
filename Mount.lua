@@ -1064,12 +1064,69 @@ function GoGo_GetCompanionSpellId(companionType, slot)
 		return nil
 	end --if
 	local r1, r2, r3, r4, r5 = GetCompanionInfo(companionType, slot)
-	for _, value in ipairs({r2, r3, r5, r1}) do
-		if type(value) == "number" and value > 100 then
+	if r1 == nil and r2 == nil and r3 == nil then
+		return nil
+	end --if
+
+	-- 3.3.5: name, spellID, icon, active
+	if type(r1) == "string" and type(r2) == "number" then
+		return r2
+	end --if
+
+	-- Classic/extended: creatureID, creatureName, creatureSpellID, icon, summoned
+	if type(r2) == "string" and type(r3) == "number" then
+		return r3
+	end --if
+
+	-- GoGoMount original used the third return value
+	if type(r3) == "number" and r3 > 0 then
+		return r3
+	end --if
+
+	if type(r2) == "number" and r2 > 0 then
+		return r2
+	end --if
+
+	for _, value in ipairs({r1, r2, r3, r4, r5}) do
+		if type(value) == "string" then
+			local spellId = tonumber(string.match(value, "(%d+)"))
+			if spellId and spellId > 100 then
+				return spellId
+			end --if
+			local link = GetSpellLink(value)
+			if link then
+				local _, _, spellIdFromLink = string.find(link, "spell:(%d+)")
+				spellIdFromLink = tonumber(spellIdFromLink)
+				if spellIdFromLink then
+					return spellIdFromLink
+				end --if
+			end --if
+		elseif type(value) == "number" and value > 100 then
 			return value
 		end --if
 	end --for
+
 	return nil
+end --function
+
+---------
+function GoGo_ForEachSpellbookSpell(callback)
+---------
+	if not GetNumSpellTabs or not GetSpellTabInfo or not GetSpellName then
+		return
+	end --if
+	local bookType = BOOKTYPE_SPELL or "spell"
+	for tab = 1, GetNumSpellTabs() do
+		local _, _, offset, numSpells = GetSpellTabInfo(tab)
+		if offset and numSpells then
+			for index = offset + 1, offset + numSpells do
+				local spellName, spellRank = GetSpellName(index, bookType)
+				if spellName and callback(spellName, spellRank, index) then
+					return
+				end --if
+			end --for
+		end --if
+	end --for
 end --function
 
 ---------
@@ -1187,10 +1244,8 @@ function GoGo_BuildMountSpellListFromSpellbook()
 			found = true
 		end --if
 	end --for
-	local slot = 1
-	while GetSpellName(slot, "spell") do
-		local name = GetSpellName(slot, "spell")
-		local link = GetSpellLink(name)
+	GoGo_ForEachSpellbookSpell(function(name)
+		local link = GetSpellLink(name, BOOKTYPE_SPELL or "spell") or GetSpellLink(name)
 		if link then
 			local _, _, spellId = string.find(link, "spell:(%d+)")
 			spellId = tonumber(spellId)
@@ -1199,8 +1254,7 @@ function GoGo_BuildMountSpellListFromSpellbook()
 				found = true
 			end --if
 		end --if
-		slot = slot + 1
-	end --while
+	end)
 	return found
 end --function
 
@@ -1209,12 +1263,8 @@ function GoGo_BuildMountSpellList()
 ---------
 	GoGo_Variables.MountSpellList = {}
 	GoGo_BuildMountSpellListFromCompanions()
-	if table.getn(GoGo_Variables.MountSpellList) == 0 then
-		GoGo_BuildMountSpellListFromMountJournal()
-	end --if
-	if table.getn(GoGo_Variables.MountSpellList) == 0 then
-		GoGo_BuildMountSpellListFromSpellbook()
-	end --if
+	GoGo_BuildMountSpellListFromMountJournal()
+	GoGo_BuildMountSpellListFromSpellbook()
 	return GoGo_Variables.MountSpellList
 end  -- function
 
@@ -1290,28 +1340,33 @@ function GoGo_InBook(spell)
 			if GoGo_Variables.Debug then
 				GoGo_DebugAddLine("GoGo_InBook: Searching for " .. spell)
 			end --if
-			local slot = 1
-			while GetSpellName(slot, "spell") do
-				local name = GetSpellName(slot, "spell")
+			local found
+			GoGo_ForEachSpellbookSpell(function(name)
 				if name == spell then
-					return spell
+					found = spell
+					return true
 				end --if
-				slot = slot + 1
-			end --while
+			end)
+			if found then
+				return found
+			end --if
 		elseif type(spell) == "number" then
 			local spellname = GetSpellInfo(spell)
 			if GoGo_Variables.Debug then
 				GoGo_DebugAddLine("GoGo_InBook: Searching for spell ID " .. spell)
 			end --if
-			local slot = 1
-			while GetSpellName(slot, "spell") do
-				local name = GetSpellName(slot, "spell")
-				if name == spellname then
-					return name
+			if spellname then
+				local found
+				GoGo_ForEachSpellbookSpell(function(name)
+					if name == spellname then
+						found = name
+						return true
+					end --if
+				end)
+				if found then
+					return found
 				end --if
-				slot = slot + 1
-			end --while
-			-- blah
+			end --if
 		end --if
 	end --if
 end --function

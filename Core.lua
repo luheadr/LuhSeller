@@ -4,7 +4,7 @@ LuhUtilities = LuhUtilities or {}
 local LS = LuhUtilities
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.4.2"
+LS.VERSION = "1.4.3"
 
 local ARMOR_TYPES = {
 	cloth = true,
@@ -69,7 +69,7 @@ local defaults = {
 }
 
 LS.mountDefaults = {
-	version = "1.4.2",
+	version = "1.4.3",
 	autodismount = true,
 	DisableUpdateNotice = true,
 	DisableMountNotice = false,
@@ -623,6 +623,11 @@ local function SlashHandler(msg)
 		local journal = (C_MountJournal and C_MountJournal.GetMountIDs) and "yes" or "no"
 		local key1 = GetBindingKey("LUHMOUNT")
 		LS:Print("Mounts known: " .. count .. " (spells: " .. spellCount .. ", companions API: " .. companionCount .. ", journal: " .. journal .. ")" .. (key1 and (", keybind: " .. key1) or ", no keybind"))
+		if companionCount > 0 and spellCount == 0 and GetCompanionInfo then
+			local r1, r2, r3 = GetCompanionInfo("MOUNT", 1)
+			local parsed = GoGo_GetCompanionSpellId and GoGo_GetCompanionSpellId("MOUNT", 1)
+			LS:Print("Companion[1] raw: " .. tostring(r1) .. " | " .. tostring(r2) .. " | " .. tostring(r3) .. " => parsed: " .. tostring(parsed))
+		end
 	else
 		LS:ToggleUI()
 	end
