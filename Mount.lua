@@ -382,38 +382,58 @@ function GoGo_OnLoad(frame)
 end --function
 
 ---------
+function GoGo_DoVariablesLoaded()
+---------
+	if GoGo_Variables.VariablesReady then
+		return
+	end
+	GoGo_Variables.VariablesReady = true
+
+	GoGo_DebugLog = {}
+	if not GoGo_Prefs then
+		GoGo_Prefs = LS.db.mount
+	end --if
+
+	GoGo_Variables.TestVersion = false
+	GoGo_Variables.Debug = false
+	_, GoGo_Variables.Player.Class = UnitClass("player")
+	if (GoGo_Variables.Player.Class == "DRUID") then
+		GoGo_Variables.Druid = GoGo_Variables.Druid or {}
+		LuhUtilitiesMountFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+	elseif (GoGo_Variables.Player.Class == "SHAMAN") then
+		GoGo_Variables.Shaman = GoGo_Variables.Shaman or {}
+		LuhUtilitiesMountFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+	end --if
+	GOGO_OUTLANDS = table.concat({GetMapZones(3)}, ":")..":"..GoGo_Variables.Localize.Zone.TwistingNether
+	GOGO_NORTHREND = table.concat({GetMapZones(4)}, ":")..":"..GoGo_Variables.Localize.Zone.TheFrozenSea
+	LuhUtilitiesMountFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+	if not GoGo_Prefs.version then
+		GoGo_Settings_Default()
+	elseif GoGo_Prefs.version ~= LS.VERSION then
+		GoGo_Settings_SetUpdates()
+	end --if
+	GoGo_Panel_Options()
+	GoGo_Panel_UpdateViews()
+end --function
+
+---------
+function GoGo_DoPlayerEnteringWorld()
+---------
+	GoGo_DoVariablesLoaded()
+	GoGo_BuildMountSpellList()
+	GoGo_BuildMountItemList()
+	GoGo_BuildMountList()
+	GoGo_CheckFor310()
+	if not InCombatLockdown() then
+		GoGo_CheckBindings()
+	end --if
+end --function
+
+---------
 function GoGo_OnEvent(event)
 ---------
 	if event == "VARIABLES_LOADED" then
-		GoGo_DebugLog = {}
-		if not GoGo_Prefs then
-			GoGo_Prefs = LS.db.mount
-		end --if
-
---		GoGo_Localize()
-
---		GoGo_LoadMountDB()
-		GoGo_Variables.TestVersion = false
-		GoGo_Variables.Debug = false
-		_, GoGo_Variables.Player.Class = UnitClass("player")
-		if (GoGo_Variables.Player.Class == "DRUID") then
-			GoGo_Variables.Druid = {}
-			LuhUtilitiesMountFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-		elseif (GoGo_Variables.Player.Class == "SHAMAN") then
-			GoGo_Variables.Shaman = {}
-			LuhUtilitiesMountFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-		end --if
-		GOGO_OUTLANDS = table.concat({GetMapZones(3)}, ":")..":"..GoGo_Variables.Localize.Zone.TwistingNether
-		GOGO_NORTHREND = table.concat({GetMapZones(4)}, ":")..":"..GoGo_Variables.Localize.Zone.TheFrozenSea
-		LuhUtilitiesMountFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-		if not GoGo_Prefs.version then
-			GoGo_Settings_Default()
-		elseif GoGo_Prefs.version ~= LS.VERSION then
-			GoGo_Settings_SetUpdates()
-		end --if
-		GoGo_Panel_Options()
-		GoGo_Panel_UpdateViews()
---		GoGo_Panel_GlobalFavorites_Populate()
+		GoGo_DoVariablesLoaded()
 		
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		for i, button in ipairs({LuhUtilitiesMountButton, LuhUtilitiesMountButton2, LuhUtilitiesMountButton3}) do
@@ -440,10 +460,7 @@ function GoGo_OnEvent(event)
 		if GoGo_Variables.Debug then
 			GoGo_DebugAddLine("EVENT: Player Entering World")
 		end --if
-		GoGo_BuildMountSpellList()
-		GoGo_BuildMountItemList()
-		GoGo_BuildMountList()
-		GoGo_CheckFor310()
+		GoGo_DoPlayerEnteringWorld()
 	elseif (event == "COMPANION_LEARNED") then
 		if GoGo_Variables.Debug then
 			GoGo_DebugAddLine("EVENT: Companion Learned")
@@ -596,6 +613,7 @@ end --function
 function GoGo_ChooseMount()
 ---------
 	if (GoGo_Variables.Player.Class == "DRUID") then
+		GoGo_Variables.Druid = GoGo_Variables.Druid or {}
 		GoGo_Variables.Druid.FeralSwiftness, _ = GoGo_GetTalentInfo(GOGO_TALENT_FERALSWIFTNESS)
 		if IsIndoors() then
 			if IsSwimming() then
@@ -615,6 +633,7 @@ function GoGo_ChooseMount()
 		if GoGo_Variables.Debug then
 			GoGo_DebugAddLine("GoGo_ChooseMount: We are a shaman and we're moving.  Changing shape form.")
 		end --if
+		GoGo_Variables.Shaman = GoGo_Variables.Shaman or {}
 		GoGo_Variables.Shaman.ImprovedGhostWolf, _ = GoGo_GetTalentInfo(GOGO_TALENT_IMPROVEDGHOSTWOLF)
 		if (GoGo_Variables.Shaman.ImprovedGhostWolf == 2) then return GoGo_InBook(GOGO_SPELLS["SHAMAN"]) end --if
 	elseif (GoGo_Variables.Player.Class == "HUNTER") and GoGo_IsMoving() then
@@ -1138,6 +1157,9 @@ end --function
 ---------
 function GoGo_InOutlands()
 ---------
+	if not GOGO_OUTLANDS or not GoGo_Variables.Player.Zone then
+		return false
+	end --if
 	if string.find(GOGO_OUTLANDS, GoGo_Variables.Player.Zone, 1, true) then
 		return true
 	end --if
@@ -1145,6 +1167,9 @@ end --function
 
 function GoGo_InNorthrend()
 ---------
+	if not GOGO_NORTHREND or not GoGo_Variables.Player.Zone then
+		return false
+	end --if
 	if string.find(GOGO_NORTHREND, GoGo_Variables.Player.Zone, 1, true) then
 		return true
 	end --if
@@ -1254,7 +1279,11 @@ function GoGo_FillButton(button, mount)
 	if mount then
 		local macro = LS:BuildMountMacroText(mount)
 		if not macro then
-			macro = "/use " .. mount
+			if type(mount) == "string" and (mount:find("%[") or mount:find(";")) then
+				macro = "/cast " .. mount
+			else
+				macro = "/use " .. mount
+			end
 		end
 		button:SetAttribute("macrotext", macro)
 	else
@@ -1265,16 +1294,25 @@ end --function
 ---------
 function GoGo_CheckBindings()
 ---------
-	for binding, button in pairs({LUHMOUNT = LuhUtilitiesMountButton, LUHMOUNT_GROUND = LuhUtilitiesMountButton2, LUHMOUNT_PASSENGER = LuhUtilitiesMountButton3}) do
-		ClearOverrideBindings(button)
-		local key1, key2 = GetBindingKey(binding)
-		if key1 then
-			SetOverrideBindingClick(button, true, key1, button:GetName())
+	local bindings = {
+		{"LUHMOUNT", LuhUtilitiesMountButton},
+		{"LUHMOUNT_GROUND", LuhUtilitiesMountButton2},
+		{"LUHMOUNT_PASSENGER", LuhUtilitiesMountButton3},
+	}
+	for i = 1, table.getn(bindings) do
+		local binding = bindings[i][1]
+		local button = bindings[i][2]
+		if button then
+			ClearOverrideBindings(button)
+			local key1, key2 = GetBindingKey(binding)
+			if key1 then
+				SetOverrideBindingClick(button, true, key1, button:GetName())
+			end --if
+			if key2 then
+				SetOverrideBindingClick(button, true, key2, button:GetName())
+			end --if
 		end --if
-		if key2 then
-			SetOverrideBindingClick(button, true, key2, button:GetName())
-		end --if
-	end --if
+	end --for
 end --function
 
 ---------
@@ -1723,6 +1761,9 @@ function LS:InitMount()
     if LuhUtilitiesMountFrame then
         GoGo_OnLoad(LuhUtilitiesMountFrame)
     end
+    if UnitName("player") then
+        GoGo_DoPlayerEnteringWorld()
+    end
     self:UpdateMountBindings()
 end
 
@@ -1750,11 +1791,18 @@ function LS:BuildMountMacroText(mountText)
         end
     end
     if mountText and mountText ~= "" then
-        for part in string.gmatch(mountText, "[^,]+") do
-            part = self:Trim(part)
-            if part ~= "" then
-                table.insert(lines, "/use " .. part)
+        mountText = tostring(mountText)
+        if mountText:find("[%[%;]") then
+            table.insert(lines, "/cast " .. mountText)
+        elseif mountText:find(",") then
+            for part in string.gmatch(mountText, "[^,]+") do
+                part = self:Trim(part)
+                if part ~= "" then
+                    table.insert(lines, "/use " .. part)
+                end
             end
+        else
+            table.insert(lines, "/use " .. mountText)
         end
     end
     if prefs.customLinesAfter then

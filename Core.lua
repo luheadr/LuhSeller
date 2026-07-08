@@ -4,7 +4,7 @@ LuhUtilities = LuhUtilities or {}
 local LS = LuhUtilities
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.4.0"
+LS.VERSION = "1.4.1"
 
 local ARMOR_TYPES = {
 	cloth = true,
@@ -69,7 +69,7 @@ local defaults = {
 }
 
 LS.mountDefaults = {
-	version = "1.4.0",
+	version = "1.4.1",
 	autodismount = true,
 	DisableUpdateNotice = true,
 	DisableMountNotice = false,
@@ -613,6 +613,13 @@ local function SlashHandler(msg)
 		if LS.frame and LS.UI then
 			LS.UI:ShowTab(LS.frame, "mount")
 		end
+	elseif msg == "mounttest" then
+		if GoGo_DoPlayerEnteringWorld then
+			GoGo_DoPlayerEnteringWorld()
+		end
+		local count = GoGo_Variables and GoGo_Variables.MountList and table.getn(GoGo_Variables.MountList) or 0
+		local key1 = GetBindingKey("LUHMOUNT")
+		LS:Print("Mounts known: " .. count .. (key1 and (", keybind: " .. key1) or ", no LUHMOUNT keybind set"))
 	else
 		LS:ToggleUI()
 	end
