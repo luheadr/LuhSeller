@@ -376,6 +376,7 @@ function GoGo_OnLoad(frame)
 	frame:RegisterEvent("CHAT_MSG_ADDON")
 	frame:RegisterEvent("COMPANION_LEARNED")
 	frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+	frame:RegisterEvent("SPELLS_CHANGED")
 	frame:SetScript("OnEvent", function(_, event)
 		GoGo_OnEvent(event)
 	end)
@@ -427,6 +428,36 @@ function GoGo_DoPlayerEnteringWorld()
 	if not InCombatLockdown() then
 		GoGo_CheckBindings()
 	end --if
+	if table.getn(GoGo_Variables.MountList or {}) == 0 then
+		GoGo_ScheduleMountRescan()
+	end --if
+end --function
+
+---------
+function GoGo_ScheduleMountRescan()
+---------
+	if GoGo_Variables.RescanFrame then
+		return
+	end --if
+	local frame = CreateFrame("Frame")
+	GoGo_Variables.RescanFrame = frame
+	frame.elapsed = 0
+	frame.attempts = 0
+	frame:SetScript("OnUpdate", function(self, elapsed)
+		self.elapsed = self.elapsed + elapsed
+		if self.elapsed < 1 then
+			return
+		end --if
+		self.elapsed = 0
+		self.attempts = self.attempts + 1
+		GoGo_BuildMountSpellList()
+		GoGo_BuildMountItemList()
+		GoGo_BuildMountList()
+		if table.getn(GoGo_Variables.MountList or {}) > 0 or self.attempts >= 8 then
+			self:SetScript("OnUpdate", nil)
+			GoGo_Variables.RescanFrame = nil
+		end --if
+	end)
 end --function
 
 ---------
@@ -468,6 +499,9 @@ function GoGo_OnEvent(event)
 		GoGo_BuildMountSpellList()
 		GoGo_BuildMountList()
 		GoGo_CheckFor310()
+	elseif (event == "SPELLS_CHANGED") then
+		GoGo_BuildMountSpellList()
+		GoGo_BuildMountList()
 --	elseif (event == "BAG_UPDATE") then   -- currently causing a noticable lag when moving bag items around
 --		if GoGo_Variables.Debug then
 --			GoGo_DebugAddLine("EVENT: Bag Update")
@@ -1013,7 +1047,7 @@ end --function
 function GoGo_InCompanions(item)
 ---------
 	for slot = 1, GetNumCompanions("MOUNT") do
-		local _, _, spellID = GetCompanionInfo("MOUNT", slot)
+		local spellID = GoGo_GetCompanionSpellId("MOUNT", slot)
 		if spellID and string.find(item, spellID) then
 			if GoGo_Variables.Debug then 
 				GoGo_DebugAddLine("GoGo_InCompanions: Found mount name  " .. GetSpellInfo(spellID) .. " in mount list.")
@@ -1022,6 +1056,167 @@ function GoGo_InCompanions(item)
 		end --if
 	end --for
 end --function
+
+---------
+function GoGo_GetCompanionSpellId(companionType, slot)
+---------
+	if not GetCompanionInfo then
+		return nil
+	end --if
+	local r1, r2, r3, r4, r5 = GetCompanionInfo(companionType, slot)
+	for _, value in ipairs({r2, r3, r5, r1}) do
+		if type(value) == "number" and value > 100 then
+			return value
+		end --if
+	end --for
+	return nil
+end --function
+
+---------
+function GoGo_AddMountSpellId(spellId)
+---------
+	if not spellId then
+		return
+	end --if
+	for a = 1, table.getn(GoGo_Variables.MountSpellList) do
+		if GoGo_Variables.MountSpellList[a] == spellId then
+			return
+		end --if
+	end --for
+	table.insert(GoGo_Variables.MountSpellList, spellId)
+end --function
+
+---------
+function GoGo_SpellNameLooksLikeMount(name)
+---------
+	if not name then
+		return false
+	end --if
+	local patterns = {
+		"Mount", "Steed", "Horse", "Charger", "Warhorse", "Kodo", "Ram", "Raptor",
+		"Strider", "Mechanostrider", "Mechano%-strider", "Felsteed", "Dreadsteed",
+		"Wind Rider", "Windrider", "Gryphon", "Wyvern", "Drake", "Proto%-Drake",
+		"Hawkstrider", "Elekk", "Talbuk", "Mammoth", "Tiger", "Bike", "Broom",
+		"Turtle", "Polar Bear", "Reindeer", "Runner", "Talbuk", "Rhino", "Stallion",
+		"Palomino", "Pinto", "Skeletal", "Venomhide", "Mule", "Saber", "Sabre",
+	}
+	for a = 1, table.getn(patterns) do
+		if string.find(name, patterns[a]) then
+			return true
+		end --if
+	end --for
+	return false
+end --function
+
+---------
+function GoGo_SpellTooltipLooksLikeMount(spellName)
+---------
+	if not spellName or not LuhUtilitiesScanTooltip then
+		return false
+	end --if
+	local link = GetSpellLink(spellName)
+	if not link then
+		return false
+	end --if
+	LuhUtilitiesScanTooltip:ClearLines()
+	LuhUtilitiesScanTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+	LuhUtilitiesScanTooltip:SetHyperlink(link)
+	for i = 1, LuhUtilitiesScanTooltip:NumLines() do
+		local left = _G["LuhUtilitiesScanTooltipTextLeft" .. i]
+		if left then
+			local text = left:GetText() or ""
+			if string.find(text, "Mount") or string.find(text, "mount") or string.find(text, "Summons a") then
+				return true
+			end --if
+		end --if
+	end --for
+	return false
+end --function
+
+---------
+function GoGo_BuildMountSpellListFromCompanions()
+---------
+	if not GetNumCompanions then
+		return false
+	end --if
+	local found = false
+	local types = {"MOUNT", "mount"}
+	for t = 1, table.getn(types) do
+		local companionType = types[t]
+		local count = GetNumCompanions(companionType) or 0
+		for slot = 1, count do
+			local spellID = GoGo_GetCompanionSpellId(companionType, slot)
+			if spellID then
+				GoGo_AddMountSpellId(spellID)
+				found = true
+			end --if
+		end --for
+	end --for
+	return found
+end --function
+
+---------
+function GoGo_BuildMountSpellListFromMountJournal()
+---------
+	if not C_MountJournal or not C_MountJournal.GetMountIDs or not C_MountJournal.GetMountInfoByID then
+		return false
+	end --if
+	local found = false
+	local mountIDs = C_MountJournal.GetMountIDs()
+	if not mountIDs then
+		return false
+	end --if
+	for i = 1, #mountIDs do
+		local mountID = mountIDs[i]
+		local _, spellID, _, _, _, _, _, _, _, _, isCollected = C_MountJournal.GetMountInfoByID(mountID)
+		if isCollected and spellID then
+			GoGo_AddMountSpellId(spellID)
+			found = true
+		end --if
+	end --for
+	return found
+end --function
+
+---------
+function GoGo_BuildMountSpellListFromSpellbook()
+---------
+	local found = false
+	for mountId, _ in pairs(LuhUtilities.MountDB) do
+		if type(mountId) == "number" and GoGo_InBook(mountId) then
+			GoGo_AddMountSpellId(mountId)
+			found = true
+		end --if
+	end --for
+	local slot = 1
+	while GetSpellName(slot, "spell") do
+		local name = GetSpellName(slot, "spell")
+		local link = GetSpellLink(name)
+		if link then
+			local _, _, spellId = string.find(link, "spell:(%d+)")
+			spellId = tonumber(spellId)
+			if spellId and (GoGo_SpellNameLooksLikeMount(name) or GoGo_SpellTooltipLooksLikeMount(name)) then
+				GoGo_AddMountSpellId(spellId)
+				found = true
+			end --if
+		end --if
+		slot = slot + 1
+	end --while
+	return found
+end --function
+
+---------
+function GoGo_BuildMountSpellList()
+---------
+	GoGo_Variables.MountSpellList = {}
+	GoGo_BuildMountSpellListFromCompanions()
+	if table.getn(GoGo_Variables.MountSpellList) == 0 then
+		GoGo_BuildMountSpellListFromMountJournal()
+	end --if
+	if table.getn(GoGo_Variables.MountSpellList) == 0 then
+		GoGo_BuildMountSpellListFromSpellbook()
+	end --if
+	return GoGo_Variables.MountSpellList
+end  -- function
 
 ---------
 function GoGo_BuildMountList()
@@ -1041,22 +1236,6 @@ function GoGo_BuildMountList()
 
 	return GoGo_Variables.MountList
 end  --function
-
----------
-function GoGo_BuildMountSpellList()
----------
-	GoGo_Variables.MountSpellList = {}
-	if (GetNumCompanions("MOUNT") >= 1) then
-		for slot = 1, GetNumCompanions("MOUNT"),1 do
-			local _, _, SpellID = GetCompanionInfo("MOUNT", slot)
-			if GoGo_Variables.Debug then 
-				GoGo_DebugAddLine("GoGo_BuildMountSpellList: Found mount spell ID " .. SpellID .. " at slot " .. slot .. " and added to known mount list.")
-			end --if
-			table.insert(GoGo_Variables.MountSpellList, SpellID)
-		end --for
-	end --if
-	return GoGo_Variables.MountSpellList
-end  -- function
 
 ---------
 function GoGo_BuildMountItemList()

@@ -2,7 +2,7 @@
 ## Title: LuhUtilities
 ## Notes: Auto-sell, restock, group loot rolling, and smart mount for WoW WotLK 3.3.5a.
 ## Author: LuhUtilities
-## Version: 1.4.1
+## Version: 1.4.2
 ## SavedVariablesPerCharacter: LuhUtilitiesDB
 ## X-Category: Interface Enhancements
 
