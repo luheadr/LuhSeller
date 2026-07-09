@@ -4,7 +4,7 @@ LuhUtilities = LuhUtilities or {}
 local LS = LuhUtilities
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.4.4"
+LS.VERSION = "1.5.0"
 
 local ARMOR_TYPES = {
 	cloth = true,
@@ -62,10 +62,19 @@ local defaults = {
 	whitelist = {},
 	sellList = {},
 	restockList = {},
+	blacklist = {
+		enabled = true,
+		players = {},
+	},
 	minimap = {
 		hide = false,
 		angle = 220,
 	},
+}
+
+LS.blacklistDefaults = {
+	enabled = true,
+	players = {},
 }
 
 LS.mountDefaults = {
@@ -592,6 +601,7 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
 			LS:InitMount()
 		end
 		LS:InitRoll()
+		LS:InitBlacklist()
 		LS:InitUI()
 		LS:InitMinimap()
 		LS:Print("Loaded v" .. LS.VERSION .. ". Type /lu for settings.")
@@ -616,6 +626,12 @@ local function SlashHandler(msg)
 		if LS.frame and LS.UI then
 			LS.UI:ShowTab(LS.frame, "mount")
 		end
+	elseif msg == "bl" or msg == "blacklist" then
+		LS:HandleBlacklistSlash("")
+	elseif string.match(msg, "^bl%s+") then
+		LS:HandleBlacklistSlash(string.match(msg, "^bl%s+(.+)$") or "")
+	elseif string.match(msg, "^blacklist%s+") then
+		LS:HandleBlacklistSlash(string.match(msg, "^blacklist%s+(.+)$") or "")
 	elseif msg == "mounttest" then
 		if LS.GoGo_DoPlayerEnteringWorld then
 			LS:GoGo_DoPlayerEnteringWorld()

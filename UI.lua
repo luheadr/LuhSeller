@@ -921,6 +921,185 @@ function LS:RefreshMountUI()
 	end
 end
 
+local BLACKLIST_FOOTER_HEIGHT = 108
+
+function UI:CreateBlacklistPanel(parent)
+	local panel = CreateFrame("Frame", nil, parent)
+	panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
+	panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	panel:Hide()
+	panel.isBlacklistPanel = true
+	panel.selectedKey = nil
+	panel.searchText = ""
+
+	panel.enabled = CreateCheckbox(panel, "Enable blacklist alerts", 0, -4, function(checked)
+		LS.db.blacklist.enabled = checked
+	end)
+
+	local searchLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	searchLabel:SetPoint("TOPLEFT", 0, -32)
+	searchLabel:SetText("Search")
+
+	panel.searchBox = CreateSearchBox(panel, 220, 0, -48, function(text)
+		panel.searchText = text
+		UI:RefreshBlacklistPanel(panel)
+	end)
+
+	local scrollFrame = CreateFrame("ScrollFrame", "LuhUtilitiesBlacklistScroll", panel, "FauxScrollFrameTemplate")
+	scrollFrame:SetPoint("TOPLEFT", 0, -72)
+	scrollFrame:SetPoint("BOTTOMRIGHT", -28, BLACKLIST_FOOTER_HEIGHT + 8)
+	panel.scrollFrame = scrollFrame
+
+	panel.rows = {}
+	for i = 1, LIST_ROWS do
+		local row = CreateFrame("Button", nil, panel)
+		row:SetHeight(ROW_HEIGHT)
+		row:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 4, -((i - 1) * ROW_HEIGHT))
+		row:SetPoint("RIGHT", scrollFrame, "RIGHT", -4, 0)
+		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+		row.text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+		row.text:SetPoint("LEFT", 4, 0)
+		row.text:SetPoint("RIGHT", -4, 0)
+		row.text:SetJustifyH("LEFT")
+		row.index = i
+		row:SetScript("OnClick", function(self)
+			local filtered = LS:GetFilteredBlacklist(panel.searchText)
+			local offset = FauxScrollFrame_GetOffset(scrollFrame)
+			local entry = filtered[offset + self.index]
+			if entry then
+				panel.selectedKey = entry.key
+				UI:RefreshBlacklistPanel(panel)
+			end
+		end)
+		panel.rows[i] = row
+	end
+
+	local footer = CreateFrame("Frame", nil, panel)
+	footer:SetPoint("BOTTOMLEFT", 0, 0)
+	footer:SetPoint("BOTTOMRIGHT", 0, 0)
+	footer:SetHeight(BLACKLIST_FOOTER_HEIGHT)
+	panel.footer = footer
+
+	local hint = footer:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	hint:SetPoint("TOPLEFT", 0, -2)
+	hint:SetWidth(500)
+	hint:SetJustifyH("LEFT")
+	hint:SetText("Player name or Name-Realm. Target someone and use Add Target, or type /lu bl add [note]")
+
+	panel.nameBox = CreateEditBox(footer, 180, 0, -20)
+	panel.nameBox:SetMaxLetters(48)
+	local nameLabel = footer:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	nameLabel:SetPoint("BOTTOMLEFT", panel.nameBox, "TOPLEFT", 0, 2)
+	nameLabel:SetText("Player")
+
+	panel.noteBox = CreateEditBox(footer, 300, 0, -48)
+	panel.noteBox:SetMaxLetters(200)
+	local noteLabel = footer:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	noteLabel:SetPoint("BOTTOMLEFT", panel.noteBox, "TOPLEFT", 0, 2)
+	noteLabel:SetText("Note")
+
+	CreateButton(footer, "Add", 50, 190, -20, function()
+		local name, realm = LS:ParsePlayerInput(panel.nameBox:GetText())
+		local note = LS:Trim(panel.noteBox:GetText())
+		if not name then
+			LS:Print("Enter a player name or Name-Realm.")
+			return
+		end
+		local ok, err = LS:AddBlacklistPlayer(name, realm, note)
+		if ok then
+			panel.nameBox:SetText("")
+			panel.noteBox:SetText("")
+			panel.selectedKey = LS:NormalizePlayerKey(name, realm)
+			UI:RefreshBlacklistPanel(panel)
+			LS:Print("Blacklisted " .. name .. ".")
+		else
+			LS:Print(err or "Could not add player.")
+		end
+	end)
+
+	CreateButton(footer, "Add Target", 80, 248, -20, function()
+		local name, realm = LS:GetTargetPlayer()
+		if not name then
+			LS:Print("Target a player first.")
+			return
+		end
+		local note = LS:Trim(panel.noteBox:GetText())
+		local ok, err = LS:AddBlacklistPlayer(name, realm, note)
+		if ok then
+			panel.noteBox:SetText("")
+			panel.selectedKey = LS:NormalizePlayerKey(name, realm)
+			UI:RefreshBlacklistPanel(panel)
+			LS:Print("Blacklisted " .. name .. ".")
+		else
+			LS:Print(err or "Could not add player.")
+		end
+	end)
+
+	CreateButton(footer, "Remove", 70, 336, -20, function()
+		if not panel.selectedKey then
+			LS:Print("Select a player from the list to remove.")
+			return
+		end
+		if LS:RemoveBlacklistPlayer(panel.selectedKey) then
+			panel.selectedKey = nil
+			UI:RefreshBlacklistPanel(panel)
+			LS:Print("Removed player from blacklist.")
+		end
+	end)
+
+	scrollFrame:SetScript("OnVerticalScroll", function(self, offset)
+		FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, function()
+			UI:RefreshBlacklistPanel(panel)
+		end)
+	end)
+
+	return panel
+end
+
+function UI:RefreshBlacklistPanel(panel)
+	if not panel then
+		return
+	end
+	panel.enabled:SetChecked(LS.db.blacklist.enabled ~= false)
+	local filtered = LS:GetFilteredBlacklist(panel.searchText)
+	local scrollFrame = panel.scrollFrame
+	local offset = FauxScrollFrame_GetOffset(scrollFrame)
+	local visibleRows = math.min(LIST_ROWS, math.max(1, math.floor((scrollFrame:GetHeight() or (ROW_HEIGHT * LIST_ROWS)) / ROW_HEIGHT)))
+	FauxScrollFrame_Update(scrollFrame, table.getn(filtered), visibleRows, ROW_HEIGHT)
+
+	for i = 1, LIST_ROWS do
+		local row = panel.rows[i]
+		if i > visibleRows then
+			row:Hide()
+		else
+			row:Show()
+			local entry = filtered[offset + i]
+			if entry then
+				local display = entry.name or "?"
+				if entry.realm and entry.realm ~= "" then
+					display = display .. "-" .. entry.realm
+				end
+				local note = entry.note or ""
+				if note ~= "" then
+					if string.len(note) > 40 then
+						note = string.sub(note, 1, 37) .. "..."
+					end
+					display = display .. "  —  " .. note
+				end
+				row.text:SetText(display)
+				if panel.selectedKey == entry.key then
+					row:LockHighlight()
+				else
+					row:UnlockHighlight()
+				end
+			else
+				row.text:SetText("")
+				row:UnlockHighlight()
+			end
+		end
+	end
+end
+
 function UI:ShowTab(frame, tabName)
 	frame.settingsPanel:Hide()
 	frame.whitelistPanel:Hide()
@@ -929,6 +1108,7 @@ function UI:ShowTab(frame, tabName)
 	frame.rollPanel:Hide()
 	frame.rollRulesPanel:Hide()
 	frame.mountPanel:Hide()
+	frame.blacklistPanel:Hide()
 
 	SetTabSelected(frame.tabSettings, tabName == "settings")
 	SetTabSelected(frame.tabWhitelist, tabName == "whitelist")
@@ -937,6 +1117,7 @@ function UI:ShowTab(frame, tabName)
 	SetTabSelected(frame.tabRoll, tabName == "roll")
 	SetTabSelected(frame.tabRollRules, tabName == "rollrules")
 	SetTabSelected(frame.tabMount, tabName == "mount")
+	SetTabSelected(frame.tabBlacklist, tabName == "blacklist")
 
 	if tabName == "settings" then
 		frame.settingsPanel:Show()
@@ -957,6 +1138,9 @@ function UI:ShowTab(frame, tabName)
 	elseif tabName == "mount" then
 		frame.mountPanel:Show()
 		UI:RefreshMountPanel(frame.mountPanel)
+	elseif tabName == "blacklist" then
+		frame.blacklistPanel:Show()
+		UI:RefreshBlacklistPanel(frame.blacklistPanel)
 	else
 		frame.rollRulesPanel:Show()
 		UI:RefreshListPanel(frame.rollRulesPanel)
@@ -1004,7 +1188,7 @@ function LS:InitUI()
 		tile = false,
 	}
 
-	local TAB_WIDTH = 68
+	local TAB_WIDTH = 54
 	local function MakeTab(label, index, tabName)
 		local tab = CreateFrame("Button", nil, frame)
 		tab:SetSize(TAB_WIDTH, TAB_HEIGHT)
@@ -1027,6 +1211,7 @@ function LS:InitUI()
 	frame.tabRoll = MakeTab("Roll", 5, "roll")
 	frame.tabRollRules = MakeTab("Roll List", 6, "rollrules")
 	frame.tabMount = MakeTab("Mount", 7, "mount")
+	frame.tabBlacklist = MakeTab("BL", 8, "blacklist")
 
 	frame.settingsPanel = CreateFrame("Frame", nil, frame)
 	frame.settingsPanel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
@@ -1100,6 +1285,7 @@ function LS:InitUI()
 	frame.rollRulesPanel = UI:CreateRollRulesPanel(frame, "LuhUtilitiesRollRules")
 	frame.rollRulesPanel.listRef = LS.db.rollForceList
 	frame.mountPanel = UI:CreateMountPanel(frame)
+	frame.blacklistPanel = UI:CreateBlacklistPanel(frame)
 
 	UI:ShowTab(frame, "settings")
 	self:RefreshUI()
@@ -1132,6 +1318,9 @@ function LS:RefreshUI()
 	end
 	if f.mountPanel then
 		UI:RefreshMountPanel(f.mountPanel)
+	end
+	if f.blacklistPanel then
+		UI:RefreshBlacklistPanel(f.blacklistPanel)
 	end
 end
 
