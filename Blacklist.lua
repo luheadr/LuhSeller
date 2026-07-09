@@ -2,8 +2,10 @@ local LS = LuhUtilities
 
 local ALERT_SOUND = "Interface\\AddOns\\LuhUtilities\\Sounds\\blacklist_alert.wav"
 local ALERT_COOLDOWN = 30
+local SCAN_DELAY = 0.35
 
 local alertFrame
+local scanDelayFrame
 local alertTimes = {}
 
 local function SplitNameRealm(fullName)
@@ -15,6 +17,10 @@ local function SplitNameRealm(fullName)
 		return name, realm
 	end
 	return fullName, GetRealmName()
+end
+
+function LS:IsBlacklistEnabled()
+	return self.db.blacklist and self.db.blacklist.enabled ~= false
 end
 
 function LS:NormalizePlayerKey(name, realm)
@@ -51,6 +57,36 @@ function LS:GetBlacklistList()
 	return self.db.blacklist.players
 end
 
+function LS:FindBlacklistEntry(fullName)
+	if not fullName or fullName == "" then
+		return nil
+	end
+	local name, realm = SplitNameRealm(fullName)
+	if not name then
+		return nil
+	end
+
+	for _, entry in ipairs(self:GetBlacklistList()) do
+		if entry.key and entry.key == self:NormalizePlayerKey(name, realm) then
+			return entry
+		end
+	end
+
+	local lowerName = string.lower(name)
+	local myRealm = string.lower(GetRealmName() or "")
+	for _, entry in ipairs(self:GetBlacklistList()) do
+		if string.lower(entry.name or "") == lowerName then
+			local entryRealm = string.lower(entry.realm or myRealm)
+			local theirRealm = string.lower(realm or myRealm)
+			if entryRealm == theirRealm or entryRealm == myRealm or theirRealm == myRealm then
+				return entry
+			end
+		end
+	end
+
+	return nil
+end
+
 function LS:GetBlacklistEntry(key)
 	for _, entry in ipairs(self:GetBlacklistList()) do
 		if entry.key == key then
@@ -61,27 +97,10 @@ function LS:GetBlacklistEntry(key)
 end
 
 function LS:IsBlacklisted(fullName)
-	if not self.db.blacklist or not self.db.blacklist.enabled then
+	if not self:IsBlacklistEnabled() then
 		return false
 	end
-	local name, realm = SplitNameRealm(fullName)
-	if not name then
-		return false
-	end
-	local key = self:NormalizePlayerKey(name, realm)
-	return self:GetBlacklistEntry(key) ~= nil
-end
-
-function LS:GetBlacklistNote(fullName)
-	local name, realm = SplitNameRealm(fullName)
-	if not name then
-		return nil
-	end
-	local entry = self:GetBlacklistEntry(self:NormalizePlayerKey(name, realm))
-	if entry then
-		return entry.note, entry
-	end
-	return nil
+	return self:FindBlacklistEntry(fullName) ~= nil
 end
 
 function LS:AddBlacklistPlayer(name, realm, note)
@@ -94,7 +113,7 @@ function LS:AddBlacklistPlayer(name, realm, note)
 		realm = GetRealmName() or ""
 	end
 	local key = self:NormalizePlayerKey(name, realm)
-	if self:GetBlacklistEntry(key) then
+	if self:GetBlacklistEntry(key) or self:FindBlacklistEntry(name .. "-" .. realm) or self:FindBlacklistEntry(name) then
 		return false, "Player is already on the blacklist."
 	end
 	table.insert(self:GetBlacklistList(), {
@@ -143,47 +162,61 @@ function LS:GetFilteredBlacklist(searchText)
 end
 
 function LS:GetTargetPlayer()
-	if not UnitExists("target") or not UnitIsPlayer("target") then
+	if not UnitExists("target") then
 		return nil
 	end
 	local name = UnitName("target")
 	if not name then
 		return nil
 	end
-	local playerName, realm = SplitNameRealm(name)
-	return playerName, realm
+	if UnitIsPlayer and not UnitIsPlayer("target") then
+		return nil
+	end
+	return SplitNameRealm(name)
 end
 
 function LS:PlayBlacklistAlert()
+	local played
 	if PlaySoundFile then
-		PlaySoundFile(ALERT_SOUND)
-		return
+		played = PlaySoundFile(ALERT_SOUND)
 	end
 	PlaySound("RaidWarning")
+	if not played and PlaySound then
+		PlaySound("ReadyCheck")
+	end
 end
 
-function LS:AlertBlacklist(fullName, note, context)
-	if not self.db.blacklist or not self.db.blacklist.enabled then
+function LS:AlertBlacklist(fullName, entry, context)
+	if not self:IsBlacklistEnabled() then
 		return
 	end
+	entry = entry or self:FindBlacklistEntry(fullName)
+	if not entry then
+		return
+	end
+
 	local name, realm = SplitNameRealm(fullName)
 	if not name then
-		return
+		name = entry.name
+		realm = entry.realm
 	end
-	local key = self:NormalizePlayerKey(name, realm)
+
+	local key = entry.key or self:NormalizePlayerKey(name, realm)
 	local now = GetTime()
 	if alertTimes[key] and (now - alertTimes[key]) < ALERT_COOLDOWN then
 		return
 	end
 	alertTimes[key] = now
 
-	local displayName = name
-	if realm and realm ~= "" then
-		displayName = name .. "-" .. realm
+	local displayName = entry.name or name
+	if entry.realm and entry.realm ~= "" then
+		displayName = displayName .. "-" .. entry.realm
 	end
+
 	local where = context or "nearby"
 	self:PlayBlacklistAlert()
 	self:Print("|cffff4444BLACKLIST ALERT|r (" .. where .. "): |cffffcc00" .. displayName .. "|r")
+	local note = entry.note
 	if note and note ~= "" then
 		self:Print("Note: " .. note)
 	else
@@ -191,22 +224,29 @@ function LS:AlertBlacklist(fullName, note, context)
 	end
 end
 
-function LS:CheckPlayerUnit(unit, context)
-	if not UnitExists(unit) or not UnitIsPlayer(unit) then
+function LS:CheckPlayerName(fullName, context)
+	if not fullName or fullName == "" then
 		return
 	end
-	local name = UnitName(unit)
-	if not name then
-		return
-	end
-	if self:IsBlacklisted(name) then
-		local note = self:GetBlacklistNote(name)
-		self:AlertBlacklist(name, note, context)
+	local entry = self:FindBlacklistEntry(fullName)
+	if entry then
+		self:AlertBlacklist(fullName, entry, context)
 	end
 end
 
+function LS:CheckPlayerUnit(unit, context)
+	if not UnitExists(unit) then
+		return
+	end
+	if UnitIsPlayer and not UnitIsPlayer(unit) then
+		return
+	end
+	local name = UnitName(unit)
+	self:CheckPlayerName(name, context)
+end
+
 function LS:ScanForBlacklistedPlayers()
-	if not self.db.blacklist or not self.db.blacklist.enabled then
+	if not self:IsBlacklistEnabled() then
 		return
 	end
 
@@ -216,9 +256,8 @@ function LS:ScanForBlacklistedPlayers()
 	if numRaid > 0 then
 		for i = 1, numRaid do
 			local raidName = GetRaidRosterInfo(i)
-			if raidName and self:IsBlacklisted(raidName) then
-				local note = self:GetBlacklistNote(raidName)
-				self:AlertBlacklist(raidName, note, "raid")
+			if raidName then
+				self:CheckPlayerName(raidName, "raid")
 			end
 		end
 		return
@@ -227,7 +266,26 @@ function LS:ScanForBlacklistedPlayers()
 	local numParty = GetNumPartyMembers and GetNumPartyMembers() or 0
 	for i = 1, numParty do
 		self:CheckPlayerUnit("party" .. i, "party")
+		local partyName = UnitName("party" .. i)
+		if partyName then
+			self:CheckPlayerName(partyName, "party")
+		end
 	end
+end
+
+function LS:ScheduleBlacklistScan()
+	if not scanDelayFrame then
+		scanDelayFrame = CreateFrame("Frame")
+	end
+	scanDelayFrame.elapsed = 0
+	scanDelayFrame:SetScript("OnUpdate", function(self, elapsed)
+		self.elapsed = self.elapsed + elapsed
+		if self.elapsed < SCAN_DELAY then
+			return
+		end
+		self:SetScript("OnUpdate", nil)
+		LS:ScanForBlacklistedPlayers()
+	end)
 end
 
 function LS:HandleBlacklistSlash(msg)
@@ -247,9 +305,9 @@ function LS:HandleBlacklistSlash(msg)
 	if cmd == "add" or cmd == "addtarget" then
 		local name, realm
 		local note = ""
-		if cmd == "addtarget" or (cmd == "add" and rest == "" and UnitExists("target") and UnitIsPlayer("target")) then
+		if cmd == "addtarget" or (cmd == "add" and rest == "" and UnitExists("target") and (not UnitIsPlayer or UnitIsPlayer("target"))) then
 			name, realm = self:GetTargetPlayer()
-		elseif UnitExists("target") and UnitIsPlayer("target") then
+		elseif UnitExists("target") and (not UnitIsPlayer or UnitIsPlayer("target")) then
 			name, realm = self:GetTargetPlayer()
 			note = rest
 		else
@@ -293,12 +351,20 @@ function LS:HandleBlacklistSlash(msg)
 		return
 	end
 
-	if cmd == "scan" then
+	if cmd == "scan" or cmd == "test" then
+		self:Print("Blacklist enabled: " .. tostring(self:IsBlacklistEnabled()) .. ", entries: " .. table.getn(self:GetBlacklistList()))
+		for _, entry in ipairs(self:GetBlacklistList()) do
+			self:Print("  " .. (entry.key or "?") .. " => " .. (entry.name or "?") .. " — " .. (entry.note or ""))
+		end
+		if UnitExists("target") then
+			local tname = UnitName("target")
+			self:Print("Target: " .. tostring(tname) .. " | match: " .. tostring(self:FindBlacklistEntry(tname) ~= nil))
+		end
 		self:ScanForBlacklistedPlayers()
 		return
 	end
 
-	self:Print("Blacklist: /lu bl | add <name> [note] | add (with target) [note] | remove <name> | scan")
+	self:Print("Blacklist: /lu bl | add <name> [note] | add (with target) [note] | remove <name> | test")
 end
 
 function LS:InitBlacklist()
@@ -310,18 +376,29 @@ function LS:InitBlacklist()
 	if not self.db.blacklist then
 		self.db.blacklist = {}
 	end
-	CopyDefaults(self.blacklistDefaults, self.db.blacklist)
+	if self.CopyDefaults then
+		self.CopyDefaults(self.blacklistDefaults, self.db.blacklist)
+	end
+	if self.db.blacklist.enabled == nil then
+		self.db.blacklist.enabled = true
+	end
 
 	if not alertFrame then
 		alertFrame = CreateFrame("Frame")
-		alertFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 		alertFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 		alertFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
 		alertFrame:RegisterEvent("RAID_ROSTER_UPDATE")
-		alertFrame:SetScript("OnEvent", function()
-			LS:ScanForBlacklistedPlayers()
+		alertFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+		alertFrame:SetScript("OnEvent", function(_, event)
+			if event == "PLAYER_ENTERING_WORLD" then
+				LS:ScheduleBlacklistScan()
+			else
+				LS:ScheduleBlacklistScan()
+			end
 		end)
 	end
+
+	self:ScheduleBlacklistScan()
 end
 
 function LS:RefreshBlacklistUI()
