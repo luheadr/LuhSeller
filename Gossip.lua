@@ -42,6 +42,14 @@ function LS:InitGossipDefaults()
 			end
 		end
 	end
+
+	if self.db.gossipNPCList then
+		for _, entry in ipairs(self.db.gossipNPCList) do
+			if entry.option == nil then
+				entry.option = 1
+			end
+		end
+	end
 end
 
 function LS:GetNPCId(unit)
@@ -62,13 +70,20 @@ function LS:GetNPCId(unit)
 	return nil
 end
 
-function LS:GetGossipType()
+function LS:GetGossipOptionInfo(index)
+	index = tonumber(index) or 1
 	local num = GetNumGossipOptions and GetNumGossipOptions() or 0
-	if num == 0 then
-		return nil
+	if index < 1 or index > num then
+		return nil, nil
 	end
-	local _, gossipType = GetGossipOptions()
-	return gossipType
+	local offset = (index - 1) * 2
+	local text = select(offset + 1, GetGossipOptions())
+	local gossipType = select(offset + 2, GetGossipOptions())
+	return text, gossipType
+end
+
+function LS:GetGossipType()
+	return select(2, self:GetGossipOptionInfo(1))
 end
 
 function LS:IsShiftKeyDown()
@@ -94,9 +109,29 @@ function LS:HasGossipQuests()
 	return false
 end
 
-function LS:IsOnGossipList(npcId)
+function LS:GossipEntryKey(npcId, option)
+	return tostring(npcId) .. ":" .. tostring(option or 1)
+end
+
+function LS:GetGossipListEntry(npcId, option)
+	if not npcId or not self.db.gossipNPCList then
+		return nil
+	end
+	option = option or 1
+	for _, entry in ipairs(self.db.gossipNPCList) do
+		if entry.id == npcId and (entry.option or 1) == option then
+			return entry
+		end
+	end
+	return nil
+end
+
+function LS:IsOnGossipList(npcId, option)
 	if not npcId or not self.db.gossipNPCList then
 		return false
+	end
+	if option then
+		return self:GetGossipListEntry(npcId, option) ~= nil
 	end
 	for _, entry in ipairs(self.db.gossipNPCList) do
 		if entry.id == npcId then
@@ -106,21 +141,55 @@ function LS:IsOnGossipList(npcId)
 	return false
 end
 
-function LS:AddToGossipList(npcId, name)
+function LS:GetGossipAutoOption(npcId)
+	if not npcId or not self.db.gossipNPCList then
+		return 1
+	end
+	for _, entry in ipairs(self.db.gossipNPCList) do
+		if entry.id == npcId then
+			return entry.option or 1
+		end
+	end
+	return 1
+end
+
+function LS:AddToGossipList(npcId, name, option, optionText)
 	if not npcId then
 		return false, "Could not resolve NPC."
 	end
-	if self:IsOnGossipList(npcId) then
-		return false, "NPC is already on the gossip list."
+	option = tonumber(option) or 1
+	if self:GetGossipListEntry(npcId, option) then
+		return false, "This NPC gossip option is already on the list."
 	end
-	table.insert(self.db.gossipNPCList, {
+	local entry = {
 		id = npcId,
 		name = name or ("NPC " .. npcId),
-	})
+		option = option,
+		optionText = optionText,
+		key = self:GossipEntryKey(npcId, option),
+	}
+	table.insert(self.db.gossipNPCList, entry)
 	if self.RefreshGossipUI then
 		self:RefreshGossipUI()
 	end
 	return true
+end
+
+function LS:RemoveFromGossipList(entryKey)
+	if not entryKey or not self.db.gossipNPCList then
+		return false
+	end
+	for index, entry in ipairs(self.db.gossipNPCList) do
+		local key = entry.key or self:GossipEntryKey(entry.id, entry.option)
+		if key == entryKey or entry.id == entryKey then
+			table.remove(self.db.gossipNPCList, index)
+			if self.RefreshGossipUI then
+				self:RefreshGossipUI()
+			end
+			return true
+		end
+	end
+	return false
 end
 
 function LS:ShouldAutoGossip(npcId, gossipType)
@@ -152,24 +221,31 @@ function LS:ShouldAutoGossip(npcId, gossipType)
 	return true
 end
 
-function LS:PromptAddGossipNPC(npcId, npcName)
+function LS:PromptAddGossipOption(npcId, npcName, option, optionText)
 	if not self.db.gossipPromptAddToList then
 		return
 	end
-	if not npcId or self:IsOnGossipList(npcId) then
+	if not npcId or not option then
 		return
 	end
-	if self.gossipPromptShown and self.gossipPromptShown[npcId] then
+	if self:GetGossipListEntry(npcId, option) then
 		return
 	end
 
+	local promptKey = self:GossipEntryKey(npcId, option)
 	self.gossipPromptShown = self.gossipPromptShown or {}
-	self.gossipPromptShown[npcId] = true
+	if self.gossipPromptShown[promptKey] then
+		return
+	end
+	self.gossipPromptShown[promptKey] = true
 
 	local displayName = npcName or ("NPC " .. npcId)
-	StaticPopup_Show("LUHUTILITIES_ADD_GOSSIP_NPC", displayName, nil, {
+	local displayOption = optionText or ("Option " .. option)
+	StaticPopup_Show("LUHUTILITIES_ADD_GOSSIP_NPC", displayOption, displayName, {
 		npcId = npcId,
 		npcName = displayName,
+		option = option,
+		optionText = displayOption,
 	})
 end
 
@@ -177,10 +253,18 @@ function LS:OnGossipSelected(index)
 	if self.gossipInternal then
 		return
 	end
+
+	index = tonumber(index) or 1
+	local num = GetNumGossipOptions and GetNumGossipOptions() or 0
+	if num <= 1 then
+		return
+	end
+
 	local npcId = self:GetNPCId("target")
 	local npcName = UnitName("target")
+	local optionText = self:GetGossipOptionInfo(index)
 	if npcId then
-		self:PromptAddGossipNPC(npcId, npcName)
+		self:PromptAddGossipOption(npcId, npcName, index, optionText)
 	end
 end
 
@@ -198,14 +282,14 @@ function LS:TryAutoGossip()
 		return
 	end
 
-	self.gossipInternal = true
-	SelectGossipOption(1)
-	self.gossipInternal = nil
-
-	local npcName = UnitName("target")
-	if npcId then
-		self:PromptAddGossipNPC(npcId, npcName)
+	local option = 1
+	if npcId and self:IsOnGossipList(npcId) then
+		option = self:GetGossipAutoOption(npcId)
 	end
+
+	self.gossipInternal = true
+	SelectGossipOption(option)
+	self.gossipInternal = nil
 end
 
 function LS:OnGossipShow()
@@ -226,14 +310,14 @@ function LS:InitGossip()
 
 	if not StaticPopupDialogs["LUHUTILITIES_ADD_GOSSIP_NPC"] then
 		StaticPopupDialogs["LUHUTILITIES_ADD_GOSSIP_NPC"] = {
-			text = "Add %s to auto-gossip NPC list?",
+			text = "Add gossip option \"%s\" for %s?",
 			button1 = YES,
 			button2 = NO,
 			OnAccept = function(_, data)
 				if data and data.npcId then
-					local ok, err = LS:AddToGossipList(data.npcId, data.npcName)
+					local ok, err = LS:AddToGossipList(data.npcId, data.npcName, data.option, data.optionText)
 					if ok then
-						LS:Print("Added " .. data.npcName .. " to auto-gossip list.")
+						LS:Print("Added gossip option for " .. data.npcName .. ".")
 					elseif err then
 						LS:Print(err)
 					end

@@ -627,10 +627,10 @@ function UI:CreateRollRulesPanel(parent, name, embedded)
 	hint:SetPoint("TOPLEFT", 0, -2)
 	hint:SetWidth(490)
 	hint:SetJustifyH("LEFT")
-	hint:SetText("Force roll: Need / Greed (DE first) / Pass / DE. Drag item or enter link / ID / name.")
+	hint:SetText("Force roll: Need / DE-Greed / Pass. DE and Greed both try DE first. Drag item or enter link / ID / name.")
 
 	panel.addBox = CreateEditBox(footer, 200, 0, -22)
-	panel.behaviorButton = CreateButton(footer, "Greed (DE first)", 110, 210, -22, function()
+	panel.behaviorButton = CreateButton(footer, "DE/Greed", 80, 210, -22, function()
 		UI:CycleRollBehavior(panel)
 	end)
 	panel.addButton = CreateButton(footer, "Add", 60, 330, -22, function()
@@ -1105,8 +1105,11 @@ function UI:RefreshGossipPanel(panel)
 			row:Show()
 			local entry = filtered[offset + i]
 			if entry then
-				row.text:SetText(string.format("[%d] %s", entry.id, entry.name or "Unknown"))
-				if panel.selectedID == entry.id then
+				local option = entry.option or 1
+				local optionLabel = entry.optionText or ("Option " .. option)
+				row.text:SetText(string.format("[%d] %s  #%d %s", entry.id, entry.name or "Unknown", option, optionLabel))
+				local entryKey = entry.key or LS:GossipEntryKey(entry.id, option)
+				if panel.selectedKey == entryKey then
 					row:LockHighlight()
 				else
 					row:UnlockHighlight()
@@ -1125,7 +1128,7 @@ function UI:CreateGossipPanel(parent)
 	panel:SetPoint("BOTTOMRIGHT", -12, 12)
 	panel:Hide()
 	panel.isGossipPanel = true
-	panel.selectedID = nil
+	panel.selectedKey = nil
 	panel.searchText = ""
 	panel.listRef = LS.db.gossipNPCList
 	panel.listName = "auto-gossip list"
@@ -1200,7 +1203,8 @@ function UI:CreateGossipPanel(parent)
 			local offset = FauxScrollFrame_GetOffset(scrollFrame)
 			local entry = filtered[offset + self.index]
 			if entry then
-				panel.selectedID = entry.id
+				local option = entry.option or 1
+				panel.selectedKey = entry.key or LS:GossipEntryKey(entry.id, option)
 				UI:RefreshGossipPanel(panel)
 			end
 		end)
@@ -1217,7 +1221,7 @@ function UI:CreateGossipPanel(parent)
 	hint:SetPoint("TOPLEFT", 0, -2)
 	hint:SetWidth(500)
 	hint:SetJustifyH("LEFT")
-	hint:SetText("Target an NPC and click Add Target, or enter an NPC ID. Quest gossip is never skipped.")
+	hint:SetText("Choose a gossip option manually to save it. Auto-select uses option 1 unless saved below.")
 
 	panel.idBox = CreateEditBox(footer, 120, 0, -20)
 	panel.idBox:SetMaxLetters(12)
@@ -1238,9 +1242,9 @@ function UI:CreateGossipPanel(parent)
 			LS:Print("Target an NPC first.")
 			return
 		end
-		local ok, err = LS:AddToGossipList(npcId, npcName)
+		local ok, err = LS:AddToGossipList(npcId, npcName, 1)
 		if ok then
-			panel.selectedID = npcId
+			panel.selectedKey = LS:GossipEntryKey(npcId, 1)
 			UI:RefreshGossipPanel(panel)
 			LS:Print("Added " .. (npcName or npcId) .. " to auto-gossip list.")
 		else
@@ -1258,11 +1262,11 @@ function UI:CreateGossipPanel(parent)
 		if npcName == "" then
 			npcName = "NPC " .. npcId
 		end
-		local ok, err = LS:AddToGossipList(npcId, npcName)
+		local ok, err = LS:AddToGossipList(npcId, npcName, 1)
 		if ok then
 			panel.idBox:SetText("")
 			panel.nameBox:SetText("")
-			panel.selectedID = npcId
+			panel.selectedKey = LS:GossipEntryKey(npcId, 1)
 			UI:RefreshGossipPanel(panel)
 			LS:Print("Added " .. npcName .. " to auto-gossip list.")
 		else
@@ -1271,13 +1275,13 @@ function UI:CreateGossipPanel(parent)
 	end)
 
 	CreateButton(footer, "Remove", 70, 420, -48, function()
-		if not panel.selectedID then
-			LS:Print("Select an NPC from the list to remove.")
+		if not panel.selectedKey then
+			LS:Print("Select an NPC gossip entry from the list to remove.")
 			return
 		end
-		if LS:RemoveFromList(panel.listRef, panel.selectedID) then
-			LS:Print("Removed NPC from auto-gossip list.")
-			panel.selectedID = nil
+		if LS:RemoveFromGossipList(panel.selectedKey) then
+			LS:Print("Removed NPC gossip entry.")
+			panel.selectedKey = nil
 			UI:RefreshGossipPanel(panel)
 		end
 	end)

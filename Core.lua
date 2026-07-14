@@ -4,7 +4,7 @@ LuhUtilities = LuhUtilities or {}
 local LS = LuhUtilities
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.7.0"
+LS.VERSION = "1.7.1"
 
 local ARMOR_TYPES = {
 	cloth = true,

@@ -9,9 +9,9 @@ LS.ROLL_BEHAVIORS = { "need", "greed", "pass", "de" }
 
 LS.ROLL_BEHAVIOR_LABELS = {
 	need = "Need",
-	greed = "Greed (DE first)",
+	greed = "DE/Greed (DE first)",
 	pass = "Pass",
-	de = "DE",
+	de = "DE/Greed (DE first)",
 }
 
 local BEHAVIOR_TO_ROLL = {
@@ -200,7 +200,7 @@ function LS:ResolveRoll(rollID)
 	local itemID = self:GetItemIDFromLink(link)
 	local forceBehavior = self:GetRollForceBehavior(itemID)
 	if forceBehavior then
-		if forceBehavior == "greed" then
+		if forceBehavior == "greed" or forceBehavior == "de" then
 			return self:ResolveDEFirstRoll(rollID)
 		end
 		return self:BehaviorToRollType(forceBehavior)
@@ -240,6 +240,72 @@ function LS:RollTypeToBehavior(rollType)
 		end
 	end
 	return nil
+end
+
+function LS:NormalizeRollPromptBehavior(rollType)
+	rollType = tonumber(rollType)
+	if rollType == LS.ROLL_DE or rollType == LS.ROLL_GREED then
+		return "greed"
+	end
+	return self:RollTypeToBehavior(rollType)
+end
+
+function LS:DismissDisenchantRollPopup()
+	if StaticPopup_Hide then
+		StaticPopup_Hide("CONFIRM_DISENCHANT_ROLL")
+	end
+end
+
+function LS:AutoConfirmDisenchantRoll(rollID)
+	rollID = tonumber(rollID)
+	if not rollID then
+		return
+	end
+	if not self.pendingRollConfirm or self.pendingRollConfirm[rollID] ~= LS.ROLL_DE then
+		return
+	end
+
+	self.skipConfirmLootRollHook = true
+	ConfirmLootRoll(rollID, LS.ROLL_DE)
+	self.skipConfirmLootRollHook = nil
+	self:DismissDisenchantRollPopup()
+
+	self:ClearPendingRoll(rollID)
+	self.internalRoll = nil
+	self:ScheduleClearAutoRoll(rollID)
+	self:PrintRollMessage(rollID, LS.ROLL_DE)
+end
+
+function LS:ScheduleDisenchantConfirm(rollID)
+	rollID = tonumber(rollID)
+	if not rollID then
+		return
+	end
+	local frame = CreateFrame("Frame")
+	frame.rollID = rollID
+	frame.elapsed = 0
+	frame.attempts = 0
+	frame:SetScript("OnUpdate", function(f, elapsed)
+		f.elapsed = f.elapsed + elapsed
+		if f.elapsed < 0.05 then
+			return
+		end
+		f.elapsed = 0
+		f.attempts = f.attempts + 1
+		if f.attempts > 20 then
+			f:SetScript("OnUpdate", nil)
+			LS:DismissDisenchantRollPopup()
+			return
+		end
+		if LS.pendingRollConfirm and LS.pendingRollConfirm[f.rollID] == LS.ROLL_DE then
+			if StaticPopup_Visible and StaticPopup_Visible("CONFIRM_DISENCHANT_ROLL") then
+				LS:AutoConfirmDisenchantRoll(f.rollID)
+				f:SetScript("OnUpdate", nil)
+			end
+		else
+			f:SetScript("OnUpdate", nil)
+		end
+	end)
 end
 
 function LS:MarkAutoRoll(rollID)
@@ -293,7 +359,7 @@ function LS:PromptAddRollRule(rollID, rollType)
 		return
 	end
 
-	local behavior = self:RollTypeToBehavior(rollType)
+	local behavior = self:NormalizeRollPromptBehavior(rollType)
 	if not behavior then
 		return
 	end
@@ -330,7 +396,11 @@ function LS:ClearPendingRoll(rollID)
 end
 
 function LS:OnConfirmLootRoll(_, rollID, rollType)
+	rollID = tonumber(rollID)
 	rollType = tonumber(rollType)
+	if not rollID or rollType == nil then
+		return
+	end
 	if not self.pendingRollConfirm or self.pendingRollConfirm[rollID] ~= rollType then
 		if self.pendingManualRoll then
 			self.pendingManualRoll[rollID] = nil
@@ -352,7 +422,10 @@ function LS:OnConfirmLootRoll(_, rollID, rollType)
 end
 
 function LS:OnConfirmDisenchantRoll(_, rollID, rollType)
-	rollType = tonumber(rollType) or LS.ROLL_DE
+	rollID = tonumber(rollID)
+	if not rollID then
+		return
+	end
 	if not self.pendingRollConfirm or self.pendingRollConfirm[rollID] ~= LS.ROLL_DE then
 		if self.pendingManualRoll then
 			self.pendingManualRoll[rollID] = nil
@@ -360,23 +433,15 @@ function LS:OnConfirmDisenchantRoll(_, rollID, rollType)
 		return
 	end
 
-	self.skipConfirmLootRollHook = true
-	ConfirmLootRoll(rollID, rollType)
-	self.skipConfirmLootRollHook = nil
-	if StaticPopup_Hide then
-		StaticPopup_Hide("CONFIRM_DISENCHANT_ROLL")
-	end
-
-	self:ClearPendingRoll(rollID)
-	self.internalRoll = nil
-	self:ScheduleClearAutoRoll(rollID)
-	self:PrintRollMessage(rollID, rollType)
+	self:AutoConfirmDisenchantRoll(rollID)
 end
 
 function LS:OnCancelLootRoll(_, rollID)
+	rollID = tonumber(rollID)
 	self:ClearPendingRoll(rollID)
 	self.internalRoll = nil
 	self:ScheduleClearAutoRoll(rollID)
+	self:DismissDisenchantRollPopup()
 	if self.pendingManualRoll then
 		self.pendingManualRoll[rollID] = nil
 	end
@@ -396,6 +461,9 @@ function LS:PerformRoll(rollID, rollType)
 	self:MarkAutoRoll(rollID)
 
 	RollOnLoot(rollID, rollType)
+	if rollType == LS.ROLL_DE then
+		self:ScheduleDisenchantConfirm(rollID)
+	end
 
 	-- Rolls that do not bind on loot skip the confirm event.
 	local frame = CreateFrame("Frame")

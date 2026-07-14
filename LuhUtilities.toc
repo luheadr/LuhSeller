@@ -2,7 +2,7 @@
 ## Title: LuhUtilities
 ## Notes: Auto-sell, restock, loot rolling, gossip automation, smart mount, and player blacklist for WoW WotLK 3.3.5a.
 ## Author: LuhUtilities
-## Version: 1.7.0
+## Version: 1.7.1
 ## SavedVariablesPerCharacter: LuhUtilitiesDB
 ## X-Category: Interface Enhancements
 
