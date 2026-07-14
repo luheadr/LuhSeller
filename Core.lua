@@ -4,7 +4,7 @@ LuhUtilities = LuhUtilities or {}
 local LS = LuhUtilities
 
 LS.ADDON_NAME = ADDON_NAME
-LS.VERSION = "1.5.1"
+LS.VERSION = "1.7.0"
 
 local ARMOR_TYPES = {
 	cloth = true,
@@ -58,6 +58,7 @@ local defaults = {
 	sellGreenSoulboundEquip = true,
 	sellBlueSoulboundNonEquip = true,
 	showChat = true,
+	sellPromptAddToList = true,
 	restockEnabled = true,
 	whitelist = {},
 	sellList = {},
@@ -487,6 +488,8 @@ function LS:SellItems()
 	end
 
 	self.isSelling = true
+	self.autoSellItems = self.autoSellItems or {}
+	self.autoSellSessionActive = true
 
 	local soldCopper = 0
 	local soldCount = 0
@@ -499,6 +502,10 @@ function LS:SellItems()
 				local _, count = GetContainerItemInfo(bag, slot)
 				local vendorPrice = select(11, GetItemInfo(link)) or 0
 				count = count or 1
+				local itemID = self:GetItemIDFromLink(link)
+				if itemID then
+					self:MarkAutoSellItem(itemID)
+				end
 
 				UseContainerItem(bag, slot)
 
@@ -517,6 +524,227 @@ function LS:SellItems()
 	end
 
 	self.isSelling = false
+	self:ScheduleClearAutoSellSession()
+end
+
+function LS:MarkAutoSellItem(itemID)
+	self.autoSellItems = self.autoSellItems or {}
+	self.autoSellItems[tonumber(itemID)] = true
+end
+
+function LS:IsAutoSellItem(itemID)
+	itemID = tonumber(itemID)
+	if not itemID then
+		return false
+	end
+	return self.autoSellItems and self.autoSellItems[itemID] == true
+end
+
+function LS:ScheduleClearAutoSellSession()
+	local frame = CreateFrame("Frame")
+	frame.elapsed = 0
+	frame:SetScript("OnUpdate", function(f, elapsed)
+		f.elapsed = f.elapsed + elapsed
+		if f.elapsed < 0.5 then
+			return
+		end
+		f:SetScript("OnUpdate", nil)
+		LS.autoSellSessionActive = nil
+		LS.autoSellItems = nil
+	end)
+end
+
+function LS:IsMerchantSellContext()
+	if not MerchantFrame or not MerchantFrame:IsShown() then
+		return false
+	end
+	if MerchantFrame.selectedTab and MerchantFrame.selectedTab == 2 then
+		return false
+	end
+	return true
+end
+
+function LS:PromptAddSellItem(itemID, itemName, link)
+	if self:IsAutoSellItem(itemID) then
+		return
+	end
+	if not self.db.sellPromptAddToList then
+		return
+	end
+	if not itemID or self:IsOnList(self.db.sellList, itemID) then
+		return
+	end
+	if self:IsOnList(self.db.whitelist, itemID) then
+		return
+	end
+
+	self.sellPromptShown = self.sellPromptShown or {}
+	if self.sellPromptShown[itemID] then
+		return
+	end
+	self.sellPromptShown[itemID] = true
+
+	local displayName = link or itemName or ("Item " .. itemID)
+	StaticPopup_Show("LUHUTILITIES_ADD_SELL_ITEM", displayName, nil, {
+		itemID = itemID,
+		itemName = itemName or displayName,
+	})
+end
+
+function LS:VerifyManualSell(capture)
+	if not capture or not capture.itemID then
+		return
+	end
+	if self:IsAutoSellItem(capture.itemID) then
+		return
+	end
+	if self:CountItemInBags(capture.itemID) >= capture.totalInBags then
+		return
+	end
+	self:PromptAddSellItem(capture.itemID, capture.name, capture.link)
+end
+
+function LS:OnSellItemLockChanged(bag, slot)
+	if self.isSelling or self.autoSellSessionActive or not self:IsMerchantSellContext() then
+		return
+	end
+
+	bag = tonumber(bag)
+	slot = tonumber(slot)
+	if not bag or not slot then
+		return
+	end
+
+	local link = GetContainerItemLink(bag, slot)
+	if not link then
+		return
+	end
+
+	local itemID = self:GetItemIDFromLink(link)
+	if not itemID or self:IsAutoSellItem(itemID) then
+		return
+	end
+
+	local capture = {
+		itemID = itemID,
+		link = link,
+		name = GetItemInfo(itemID) or link,
+		totalInBags = self:CountItemInBags(itemID),
+	}
+
+	local frame = CreateFrame("Frame")
+	frame.capture = capture
+	frame.elapsed = 0
+	frame:SetScript("OnUpdate", function(f, elapsed)
+		f.elapsed = f.elapsed + elapsed
+		if f.elapsed < 0.2 then
+			return
+		end
+		f:SetScript("OnUpdate", nil)
+		LS:VerifyManualSell(f.capture)
+	end)
+end
+
+function LS:InitSellPrompts()
+	if self.sellPromptFrame then
+		return
+	end
+
+	if not StaticPopupDialogs["LUHUTILITIES_ADD_SELL_ITEM"] then
+		StaticPopupDialogs["LUHUTILITIES_ADD_SELL_ITEM"] = {
+			text = "Add %s to always-sell list?",
+			button1 = YES,
+			button2 = NO,
+			OnAccept = function(_, data)
+				if data and data.itemID then
+					local ok, err = LS:AddToList(LS.db.sellList, data.itemID, data.itemName)
+					if ok then
+						LS:Print("Added " .. (data.itemName or data.itemID) .. " to sell list.")
+						if LS.RefreshUI then
+							LS:RefreshUI()
+						end
+					elseif err then
+						LS:Print(err)
+					end
+				end
+			end,
+			timeout = 0,
+			whileDead = 1,
+			hideOnEscape = 1,
+			preferredIndex = 3,
+		}
+	end
+
+	if not self.sellPromptHooked then
+		self.sellPromptHooked = true
+		self.cursorSellItem = nil
+
+		hooksecurefunc("PickupContainerItem", function(bag, slot)
+			if LS.isSelling or LS.autoSellSessionActive or not LS:IsMerchantSellContext() then
+				return
+			end
+			local frame = CreateFrame("Frame")
+			frame.elapsed = 0
+			frame:SetScript("OnUpdate", function(f, elapsed)
+				f.elapsed = f.elapsed + elapsed
+				if f.elapsed < 0.01 then
+					return
+				end
+				f:SetScript("OnUpdate", nil)
+				local itemType, _, itemLink = GetCursorInfo()
+				if itemType == "item" and itemLink then
+					local itemID = LS:GetItemIDFromLink(itemLink)
+					if itemID then
+						LS.cursorSellItem = {
+							itemID = itemID,
+							link = itemLink,
+							name = GetItemInfo(itemID) or itemLink,
+							totalInBags = LS:CountItemInBags(itemID),
+						}
+					end
+				end
+			end)
+		end)
+
+		if PickupMerchantItem then
+			hooksecurefunc("PickupMerchantItem", function()
+				if LS.isSelling or LS.autoSellSessionActive or not LS.cursorSellItem or not LS:IsMerchantSellContext() then
+					return
+				end
+				if LS:IsAutoSellItem(LS.cursorSellItem.itemID) then
+					LS.cursorSellItem = nil
+					return
+				end
+				local capture = LS.cursorSellItem
+				LS.cursorSellItem = nil
+				local frame = CreateFrame("Frame")
+				frame.capture = capture
+				frame.elapsed = 0
+				frame:SetScript("OnUpdate", function(f, elapsed)
+					f.elapsed = f.elapsed + elapsed
+					if f.elapsed < 0.2 then
+						return
+					end
+					f:SetScript("OnUpdate", nil)
+					LS:VerifyManualSell(f.capture)
+				end)
+			end)
+		end
+	end
+
+	self.sellPromptFrame = CreateFrame("Frame")
+	self.sellPromptFrame:RegisterEvent("ITEM_LOCK_CHANGED")
+	self.sellPromptFrame:RegisterEvent("MERCHANT_CLOSED")
+	self.sellPromptFrame:SetScript("OnEvent", function(_, event, arg1, arg2)
+		if event == "ITEM_LOCK_CHANGED" then
+			LS:OnSellItemLockChanged(arg1, arg2)
+		elseif event == "MERCHANT_CLOSED" then
+			LS.sellPromptShown = nil
+			LS.cursorSellItem = nil
+			LS.autoSellSessionActive = nil
+			LS.autoSellItems = nil
+		end
+	end)
 end
 
 function LS:RestockItems()
@@ -601,6 +829,8 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
 			LS:InitMount()
 		end
 		LS:InitRoll()
+		LS:InitGossip()
+		LS:InitSellPrompts()
 		LS:InitBlacklist()
 		LS:InitUI()
 		LS:InitMinimap()
@@ -658,7 +888,3 @@ end
 SLASH_LUHUTILITIES1 = "/luhutilities"
 SLASH_LUHUTILITIES2 = "/lu"
 SlashCmdList["LUHUTILITIES"] = SlashHandler
-
-SLASH_LUHSELLER1 = "/luhseller"
-SLASH_LUHSELLER2 = "/ls"
-SlashCmdList["LUHSELLER"] = SlashHandler

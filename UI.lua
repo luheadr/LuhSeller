@@ -11,6 +11,7 @@ local FOOTER_HEIGHT = 78
 local TAB_HEIGHT = 24
 local TAB_TOP = -44
 local CONTENT_TOP = -78
+local EMBEDDED_TOP = -32
 
 local QUALITY_COLORS = {
 	grey = "9d9d9d",
@@ -113,6 +114,126 @@ local function SetTabSelected(button, selected)
 	end
 end
 
+local function MakeSubTab(parent, label, index, width)
+	width = width or 86
+	local tab = CreateFrame("Button", nil, parent)
+	tab:SetSize(width, 22)
+	tab:SetPoint("TOPLEFT", ((index - 1) * (width + 4)), 0)
+	tab:SetBackdrop({
+		bgFile = "Interface\\Buttons\\WHITE8x8",
+		tile = false,
+	})
+	tab:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
+	local text = tab:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	text:SetPoint("CENTER")
+	text:SetText(label)
+	return tab
+end
+
+function UI:ShowVendorSubTab(container, subTab)
+	container.activeSubTab = subTab
+	container.whitelistPanel:Hide()
+	container.sellListPanel:Hide()
+	container.restockPanel:Hide()
+	SetTabSelected(container.subWhitelist, subTab == "whitelist")
+	SetTabSelected(container.subSellList, subTab == "selllist")
+	SetTabSelected(container.subRestock, subTab == "restock")
+	if subTab == "whitelist" then
+		container.whitelistPanel:Show()
+		UI:RefreshListPanel(container.whitelistPanel)
+	elseif subTab == "selllist" then
+		container.sellListPanel:Show()
+		UI:RefreshListPanel(container.sellListPanel)
+	else
+		container.restockPanel:Show()
+		UI:RefreshListPanel(container.restockPanel)
+	end
+end
+
+function UI:ShowRollSubTab(container, subTab)
+	container.activeSubTab = subTab
+	container.settingsPanel:Hide()
+	container.rulesPanel:Hide()
+	SetTabSelected(container.subRules, subTab == "rules")
+	SetTabSelected(container.subForceList, subTab == "force list")
+	if subTab == "rules" then
+		container.settingsPanel:Show()
+		if container.settingsPanel.Refresh then
+			container.settingsPanel:Refresh()
+		end
+	else
+		container.rulesPanel:Show()
+		UI:RefreshListPanel(container.rulesPanel)
+	end
+end
+
+function UI:CreateVendorPanel(parent)
+	local container = CreateFrame("Frame", nil, parent)
+	container:SetPoint("TOPLEFT", 12, CONTENT_TOP)
+	container:SetPoint("BOTTOMRIGHT", -12, 12)
+	container:Hide()
+	container.activeSubTab = "whitelist"
+
+	local subBar = CreateFrame("Frame", nil, container)
+	subBar:SetPoint("TOPLEFT", 0, 0)
+	subBar:SetPoint("TOPRIGHT", 0, 0)
+	subBar:SetHeight(24)
+
+	container.subWhitelist = MakeSubTab(subBar, "Whitelist", 1, 80)
+	container.subSellList = MakeSubTab(subBar, "Sell List", 2, 84)
+	container.subRestock = MakeSubTab(subBar, "Restock", 3, 72)
+
+	container.whitelistPanel = UI:CreateListPanel(container, "LuhUtilitiesWhitelist", "whitelist", true)
+	container.sellListPanel = UI:CreateListPanel(container, "LuhUtilitiesSellList", "sell list", true)
+	container.restockPanel = UI:CreateRestockPanel(container, "LuhUtilitiesRestock", true)
+
+	container.subWhitelist:SetScript("OnClick", function()
+		UI:ShowVendorSubTab(container, "whitelist")
+	end)
+	container.subSellList:SetScript("OnClick", function()
+		UI:ShowVendorSubTab(container, "selllist")
+	end)
+	container.subRestock:SetScript("OnClick", function()
+		UI:ShowVendorSubTab(container, "restock")
+	end)
+
+	return container
+end
+
+function UI:CreateRollPanel(parent)
+	local container = CreateFrame("Frame", nil, parent)
+	container:SetPoint("TOPLEFT", 12, CONTENT_TOP)
+	container:SetPoint("BOTTOMRIGHT", -12, 12)
+	container:Hide()
+	container.activeSubTab = "rules"
+
+	local subBar = CreateFrame("Frame", nil, container)
+	subBar:SetPoint("TOPLEFT", 0, 0)
+	subBar:SetPoint("TOPRIGHT", 0, 0)
+	subBar:SetHeight(24)
+
+	container.subRules = MakeSubTab(subBar, "Rules", 1, 72)
+	container.subForceList = MakeSubTab(subBar, "Force List", 2, 88)
+
+	container.settingsPanel = UI:CreateRollSettingsPanel(container, true)
+	container.rulesPanel = UI:CreateRollRulesPanel(container, "LuhUtilitiesRollRules", true)
+
+	container.subRules:SetScript("OnClick", function()
+		UI:ShowRollSubTab(container, "rules")
+	end)
+	container.subForceList:SetScript("OnClick", function()
+		UI:ShowRollSubTab(container, "force list")
+	end)
+
+	container.Refresh = function()
+		if container.settingsPanel.Refresh then
+			container.settingsPanel:Refresh()
+		end
+	end
+
+	return container
+end
+
 local function CreateListFooter(panel, onAdd, onRemove, hintText, withQuantity)
 	local footer = CreateFrame("Frame", nil, panel)
 	footer:SetPoint("BOTTOMLEFT", 0, 0)
@@ -147,10 +268,15 @@ local function CreateListFooter(panel, onAdd, onRemove, hintText, withQuantity)
 	return footer
 end
 
-function UI:CreateListPanel(parent, name, listName)
+function UI:CreateListPanel(parent, name, listName, embedded)
 	local panel = CreateFrame("Frame", nil, parent)
-	panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
-	panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	if embedded then
+		panel:SetPoint("TOPLEFT", 0, EMBEDDED_TOP)
+		panel:SetPoint("BOTTOMRIGHT", 0, 0)
+	else
+		panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
+		panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	end
 	panel:Hide()
 
 	panel.selectedID = nil
@@ -218,10 +344,15 @@ function UI:CreateListPanel(parent, name, listName)
 	return panel
 end
 
-function UI:CreateRestockPanel(parent, name)
+function UI:CreateRestockPanel(parent, name, embedded)
 	local panel = CreateFrame("Frame", nil, parent)
-	panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
-	panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	if embedded then
+		panel:SetPoint("TOPLEFT", 0, EMBEDDED_TOP)
+		panel:SetPoint("BOTTOMRIGHT", 0, 0)
+	else
+		panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
+		panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	end
 	panel:Hide()
 
 	panel.selectedID = nil
@@ -331,7 +462,8 @@ function UI:RefreshListPanel(panel)
 				if panel.isRestockPanel then
 					row.text:SetText(string.format("[%d] %s  (x%d)", entry.id, entry.name or "Unknown", entry.quantity or 1))
 				elseif panel.isRollRulesPanel then
-					row.text:SetText(string.format("[%d] %s  -> %s", entry.id, entry.name or "Unknown", (entry.behavior or "?"):upper()))
+					local label = LS.ROLL_BEHAVIOR_LABELS[entry.behavior] or entry.behavior or "?"
+					row.text:SetText(string.format("[%d] %s  -> %s", entry.id, entry.name or "Unknown", label))
 				else
 					row.text:SetText(string.format("[%d] %s", entry.id, entry.name or "Unknown"))
 				end
@@ -427,10 +559,15 @@ function UI:CycleRollBehavior(panel)
 	panel.behaviorButton:SetText(LS.ROLL_BEHAVIOR_LABELS[panel.selectedBehavior] or panel.selectedBehavior)
 end
 
-function UI:CreateRollRulesPanel(parent, name)
+function UI:CreateRollRulesPanel(parent, name, embedded)
 	local panel = CreateFrame("Frame", nil, parent)
-	panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
-	panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	if embedded then
+		panel:SetPoint("TOPLEFT", 0, EMBEDDED_TOP)
+		panel:SetPoint("BOTTOMRIGHT", 0, 0)
+	else
+		panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
+		panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	end
 	panel:Hide()
 
 	panel.selectedID = nil
@@ -490,16 +627,16 @@ function UI:CreateRollRulesPanel(parent, name)
 	hint:SetPoint("TOPLEFT", 0, -2)
 	hint:SetWidth(490)
 	hint:SetJustifyH("LEFT")
-	hint:SetText("Force roll: Need / Greed / Pass / DE. Drag item or enter link / ID / name.")
+	hint:SetText("Force roll: Need / Greed (DE first) / Pass / DE. Drag item or enter link / ID / name.")
 
 	panel.addBox = CreateEditBox(footer, 200, 0, -22)
-	panel.behaviorButton = CreateButton(footer, "Greed", 60, 210, -22, function()
+	panel.behaviorButton = CreateButton(footer, "Greed (DE first)", 110, 210, -22, function()
 		UI:CycleRollBehavior(panel)
 	end)
-	panel.addButton = CreateButton(footer, "Add", 60, 280, -22, function()
+	panel.addButton = CreateButton(footer, "Add", 60, 330, -22, function()
 		UI:AddRollRuleEntry(panel)
 	end)
-	panel.removeButton = CreateButton(footer, "Remove", 70, 350, -22, function()
+	panel.removeButton = CreateButton(footer, "Remove", 70, 400, -22, function()
 		UI:RemoveListEntry(panel)
 	end)
 
@@ -512,10 +649,15 @@ function UI:CreateRollRulesPanel(parent, name)
 	return panel
 end
 
-function UI:CreateRollSettingsPanel(parent)
+function UI:CreateRollSettingsPanel(parent, embedded)
 	local panel = CreateFrame("Frame", nil, parent)
-	panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
-	panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	if embedded then
+		panel:SetPoint("TOPLEFT", 0, EMBEDDED_TOP)
+		panel:SetPoint("BOTTOMRIGHT", 0, 0)
+	else
+		panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
+		panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	end
 	panel:Hide()
 
 	local y = -4
@@ -622,6 +764,10 @@ function UI:CreateRollSettingsPanel(parent)
 	panel.rollRecipeGreedUnusable = CreateCheckbox(panel, "Greed on recipes you cannot use", 8, y, function(checked)
 		LS.db.rollRecipeGreedUnusable = checked
 	end)
+	y = y - 24
+	panel.rollPromptAddToList = CreateCheckbox(panel, "Prompt when manually rolling items", 8, y, function(checked)
+		LS.db.rollPromptAddToList = checked
+	end)
 	y = y - 30
 
 	local help = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
@@ -644,6 +790,7 @@ function UI:CreateRollSettingsPanel(parent)
 		panel.rollBluePlate:SetChecked(LS.db.rollBlueArmor and LS.db.rollBlueArmor.plate)
 		panel.rollRecipeNeedUsable:SetChecked(LS.db.rollRecipeNeedUsable)
 		panel.rollRecipeGreedUnusable:SetChecked(LS.db.rollRecipeGreedUnusable)
+		panel.rollPromptAddToList:SetChecked(LS.db.rollPromptAddToList ~= false)
 		panel.rollEpicDEUnusable:SetChecked(LS.db.rollEpicDEUnusable)
 		local labels = {
 			de = "Priority: DE first",
@@ -922,6 +1069,227 @@ function LS:RefreshMountUI()
 end
 
 local BLACKLIST_FOOTER_HEIGHT = 108
+local GOSSIP_FOOTER_HEIGHT = 108
+
+function UI:RefreshGossipPanel(panel)
+	if not panel then
+		return
+	end
+
+	panel.gossipEnabled:SetChecked(LS.db.gossipEnabled ~= false)
+	panel.gossipPromptAddToList:SetChecked(LS.db.gossipPromptAddToList ~= false)
+	panel.gossipRequireAlt:SetChecked(LS.db.gossipRequireAlt ~= false)
+	panel.gossipAutoVendor:SetChecked(LS.db.gossipAutoVendor ~= false)
+	panel.gossipAutoBanker:SetChecked(LS.db.gossipAutoBanker ~= false)
+	panel.gossipAutoTrainer:SetChecked(LS.db.gossipAutoTrainer ~= false)
+	panel.gossipAutoTaxi:SetChecked(LS.db.gossipAutoTaxi ~= false)
+	panel.gossipAutoStable:SetChecked(LS.db.gossipAutoStable ~= false)
+	panel.gossipAutoBattlemaster:SetChecked(LS.db.gossipAutoBattlemaster ~= false)
+
+	if not panel.listRef then
+		return
+	end
+
+	local filtered = LS:GetFilteredList(panel.listRef, panel.searchText or "")
+	local scrollFrame = panel.scrollFrame
+	local offset = FauxScrollFrame_GetOffset(scrollFrame)
+	local visibleRows = math.min(LIST_ROWS, math.max(1, math.floor((scrollFrame:GetHeight() or (ROW_HEIGHT * LIST_ROWS)) / ROW_HEIGHT)))
+
+	FauxScrollFrame_Update(scrollFrame, #filtered, visibleRows, ROW_HEIGHT)
+
+	for i = 1, LIST_ROWS do
+		local row = panel.rows[i]
+		if i > visibleRows then
+			row:Hide()
+		else
+			row:Show()
+			local entry = filtered[offset + i]
+			if entry then
+				row.text:SetText(string.format("[%d] %s", entry.id, entry.name or "Unknown"))
+				if panel.selectedID == entry.id then
+					row:LockHighlight()
+				else
+					row:UnlockHighlight()
+				end
+			else
+				row.text:SetText("")
+				row:UnlockHighlight()
+			end
+		end
+	end
+end
+
+function UI:CreateGossipPanel(parent)
+	local panel = CreateFrame("Frame", nil, parent)
+	panel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
+	panel:SetPoint("BOTTOMRIGHT", -12, 12)
+	panel:Hide()
+	panel.isGossipPanel = true
+	panel.selectedID = nil
+	panel.searchText = ""
+	panel.listRef = LS.db.gossipNPCList
+	panel.listName = "auto-gossip list"
+
+	panel.gossipEnabled = CreateCheckbox(panel, "Enable auto-gossip", 0, -4, function(checked)
+		LS.db.gossipEnabled = checked
+	end)
+	panel.gossipPromptAddToList = CreateCheckbox(panel, "Prompt when manually choosing gossip", 0, -28, function(checked)
+		LS.db.gossipPromptAddToList = checked
+	end)
+	panel.gossipRequireAlt = CreateCheckbox(panel, "Require Alt for unknown NPCs", 0, -52, function(checked)
+		LS.db.gossipRequireAlt = checked
+	end)
+
+	local shiftHint = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	shiftHint:SetPoint("TOPLEFT", 0, -74)
+	shiftHint:SetWidth(500)
+	shiftHint:SetJustifyH("LEFT")
+	shiftHint:SetText("Hold Shift while opening gossip to skip automation for that NPC.")
+
+	local typeLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	typeLabel:SetPoint("TOPLEFT", 0, -92)
+	typeLabel:SetText("Auto-select gossip types:")
+
+	panel.gossipAutoVendor = CreateCheckbox(panel, "Vendor", 8, -110, function(checked)
+		LS.db.gossipAutoVendor = checked
+	end)
+	panel.gossipAutoBanker = CreateCheckbox(panel, "Banker", 120, -110, function(checked)
+		LS.db.gossipAutoBanker = checked
+	end)
+	panel.gossipAutoTrainer = CreateCheckbox(panel, "Trainer", 230, -110, function(checked)
+		LS.db.gossipAutoTrainer = checked
+	end)
+	panel.gossipAutoTaxi = CreateCheckbox(panel, "Flight", 8, -134, function(checked)
+		LS.db.gossipAutoTaxi = checked
+	end)
+	panel.gossipAutoStable = CreateCheckbox(panel, "Stable", 120, -134, function(checked)
+		LS.db.gossipAutoStable = checked
+	end)
+	panel.gossipAutoBattlemaster = CreateCheckbox(panel, "Battlemaster", 230, -134, function(checked)
+		LS.db.gossipAutoBattlemaster = checked
+	end)
+
+	local searchLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	searchLabel:SetPoint("TOPLEFT", 0, -160)
+	searchLabel:SetText("Saved NPCs")
+
+	panel.searchBox = CreateSearchBox(panel, 220, 0, -176, function(text)
+		panel.searchText = text
+		UI:RefreshGossipPanel(panel)
+	end)
+
+	local scrollFrame = CreateFrame("ScrollFrame", "LuhUtilitiesGossipScroll", panel, "FauxScrollFrameTemplate")
+	scrollFrame:SetPoint("TOPLEFT", 0, -200)
+	scrollFrame:SetPoint("BOTTOMRIGHT", -28, GOSSIP_FOOTER_HEIGHT + 8)
+	panel.scrollFrame = scrollFrame
+
+	panel.rows = {}
+	for i = 1, LIST_ROWS do
+		local row = CreateFrame("Button", nil, panel)
+		row:SetHeight(ROW_HEIGHT)
+		row:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 4, -((i - 1) * ROW_HEIGHT))
+		row:SetPoint("RIGHT", scrollFrame, "RIGHT", -4, 0)
+		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+		row.text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+		row.text:SetPoint("LEFT", 4, 0)
+		row.text:SetPoint("RIGHT", -4, 0)
+		row.text:SetJustifyH("LEFT")
+		row.index = i
+		row:SetScript("OnClick", function(self)
+			local filtered = LS:GetFilteredList(panel.listRef, panel.searchText)
+			local offset = FauxScrollFrame_GetOffset(scrollFrame)
+			local entry = filtered[offset + self.index]
+			if entry then
+				panel.selectedID = entry.id
+				UI:RefreshGossipPanel(panel)
+			end
+		end)
+		panel.rows[i] = row
+	end
+
+	local footer = CreateFrame("Frame", nil, panel)
+	footer:SetPoint("BOTTOMLEFT", 0, 0)
+	footer:SetPoint("BOTTOMRIGHT", 0, 0)
+	footer:SetHeight(GOSSIP_FOOTER_HEIGHT)
+	panel.footer = footer
+
+	local hint = footer:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	hint:SetPoint("TOPLEFT", 0, -2)
+	hint:SetWidth(500)
+	hint:SetJustifyH("LEFT")
+	hint:SetText("Target an NPC and click Add Target, or enter an NPC ID. Quest gossip is never skipped.")
+
+	panel.idBox = CreateEditBox(footer, 120, 0, -20)
+	panel.idBox:SetMaxLetters(12)
+	local idLabel = footer:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	idLabel:SetPoint("BOTTOMLEFT", panel.idBox, "TOPLEFT", 0, 2)
+	idLabel:SetText("NPC ID")
+
+	panel.nameBox = CreateEditBox(footer, 220, 130, -20)
+	panel.nameBox:SetMaxLetters(48)
+	local nameLabel = footer:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	nameLabel:SetPoint("BOTTOMLEFT", panel.nameBox, "TOPLEFT", 0, 2)
+	nameLabel:SetText("Name (optional)")
+
+	CreateButton(footer, "Add Target", 90, 360, -20, function()
+		local npcId = LS:GetNPCId("target")
+		local npcName = UnitName("target")
+		if not npcId then
+			LS:Print("Target an NPC first.")
+			return
+		end
+		local ok, err = LS:AddToGossipList(npcId, npcName)
+		if ok then
+			panel.selectedID = npcId
+			UI:RefreshGossipPanel(panel)
+			LS:Print("Added " .. (npcName or npcId) .. " to auto-gossip list.")
+		else
+			LS:Print(err or "Could not add NPC.")
+		end
+	end)
+
+	CreateButton(footer, "Add", 50, 360, -48, function()
+		local npcId = tonumber(LS:Trim(panel.idBox:GetText() or ""))
+		local npcName = LS:Trim(panel.nameBox:GetText() or "")
+		if not npcId then
+			LS:Print("Enter a numeric NPC ID or use Add Target.")
+			return
+		end
+		if npcName == "" then
+			npcName = "NPC " .. npcId
+		end
+		local ok, err = LS:AddToGossipList(npcId, npcName)
+		if ok then
+			panel.idBox:SetText("")
+			panel.nameBox:SetText("")
+			panel.selectedID = npcId
+			UI:RefreshGossipPanel(panel)
+			LS:Print("Added " .. npcName .. " to auto-gossip list.")
+		else
+			LS:Print(err or "Could not add NPC.")
+		end
+	end)
+
+	CreateButton(footer, "Remove", 70, 420, -48, function()
+		if not panel.selectedID then
+			LS:Print("Select an NPC from the list to remove.")
+			return
+		end
+		if LS:RemoveFromList(panel.listRef, panel.selectedID) then
+			LS:Print("Removed NPC from auto-gossip list.")
+			panel.selectedID = nil
+			UI:RefreshGossipPanel(panel)
+		end
+	end)
+
+	scrollFrame:SetScript("OnVerticalScroll", function(self, offset)
+		FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, function()
+			UI:RefreshGossipPanel(panel)
+		end)
+	end)
+
+	return panel
+end
 
 function UI:CreateBlacklistPanel(parent)
 	local panel = CreateFrame("Frame", nil, parent)
@@ -1102,48 +1470,36 @@ end
 
 function UI:ShowTab(frame, tabName)
 	frame.settingsPanel:Hide()
-	frame.whitelistPanel:Hide()
-	frame.sellListPanel:Hide()
-	frame.restockPanel:Hide()
-	frame.rollPanel:Hide()
-	frame.rollRulesPanel:Hide()
+	frame.vendorPanel:Hide()
+	frame.rollContainer:Hide()
 	frame.mountPanel:Hide()
+	frame.gossipPanel:Hide()
 	frame.blacklistPanel:Hide()
 
 	SetTabSelected(frame.tabSettings, tabName == "settings")
-	SetTabSelected(frame.tabWhitelist, tabName == "whitelist")
-	SetTabSelected(frame.tabSellList, tabName == "selllist")
-	SetTabSelected(frame.tabRestock, tabName == "restock")
+	SetTabSelected(frame.tabVendor, tabName == "vendor")
 	SetTabSelected(frame.tabRoll, tabName == "roll")
-	SetTabSelected(frame.tabRollRules, tabName == "rollrules")
 	SetTabSelected(frame.tabMount, tabName == "mount")
+	SetTabSelected(frame.tabGossip, tabName == "gossip")
 	SetTabSelected(frame.tabBlacklist, tabName == "blacklist")
 
 	if tabName == "settings" then
 		frame.settingsPanel:Show()
-	elseif tabName == "whitelist" then
-		frame.whitelistPanel:Show()
-		UI:RefreshListPanel(frame.whitelistPanel)
-	elseif tabName == "selllist" then
-		frame.sellListPanel:Show()
-		UI:RefreshListPanel(frame.sellListPanel)
-	elseif tabName == "restock" then
-		frame.restockPanel:Show()
-		UI:RefreshListPanel(frame.restockPanel)
+	elseif tabName == "vendor" then
+		frame.vendorPanel:Show()
+		UI:ShowVendorSubTab(frame.vendorPanel, frame.vendorPanel.activeSubTab or "whitelist")
 	elseif tabName == "roll" then
-		frame.rollPanel:Show()
-		if frame.rollPanel.Refresh then
-			frame.rollPanel:Refresh()
-		end
+		frame.rollContainer:Show()
+		UI:ShowRollSubTab(frame.rollContainer, frame.rollContainer.activeSubTab or "rules")
 	elseif tabName == "mount" then
 		frame.mountPanel:Show()
 		UI:RefreshMountPanel(frame.mountPanel)
+	elseif tabName == "gossip" then
+		frame.gossipPanel:Show()
+		UI:RefreshGossipPanel(frame.gossipPanel)
 	elseif tabName == "blacklist" then
 		frame.blacklistPanel:Show()
 		UI:RefreshBlacklistPanel(frame.blacklistPanel)
-	else
-		frame.rollRulesPanel:Show()
-		UI:RefreshListPanel(frame.rollRulesPanel)
 	end
 end
 
@@ -1175,7 +1531,7 @@ function LS:InitUI()
 
 	local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 	title:SetPoint("TOP", 0, -16)
-	title:SetText("LuhUtilities")
+	title:SetText("LuhUtilities  |cff888888v" .. LS.VERSION .. "|r")
 
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", -6, -6)
@@ -1188,7 +1544,7 @@ function LS:InitUI()
 		tile = false,
 	}
 
-	local TAB_WIDTH = 54
+	local TAB_WIDTH = 56
 	local function MakeTab(label, index, tabName)
 		local tab = CreateFrame("Button", nil, frame)
 		tab:SetSize(TAB_WIDTH, TAB_HEIGHT)
@@ -1205,13 +1561,11 @@ function LS:InitUI()
 	end
 
 	frame.tabSettings = MakeTab("Settings", 1, "settings")
-	frame.tabWhitelist = MakeTab("Whitelist", 2, "whitelist")
-	frame.tabSellList = MakeTab("Sell", 3, "selllist")
-	frame.tabRestock = MakeTab("Restock", 4, "restock")
-	frame.tabRoll = MakeTab("Roll", 5, "roll")
-	frame.tabRollRules = MakeTab("Roll List", 6, "rollrules")
-	frame.tabMount = MakeTab("Mount", 7, "mount")
-	frame.tabBlacklist = MakeTab("BL", 8, "blacklist")
+	frame.tabVendor = MakeTab("Vendor", 2, "vendor")
+	frame.tabRoll = MakeTab("Roll", 3, "roll")
+	frame.tabMount = MakeTab("Mount", 4, "mount")
+	frame.tabGossip = MakeTab("Gossip", 5, "gossip")
+	frame.tabBlacklist = MakeTab("BL", 6, "blacklist")
 
 	frame.settingsPanel = CreateFrame("Frame", nil, frame)
 	frame.settingsPanel:SetPoint("TOPLEFT", 12, CONTENT_TOP)
@@ -1221,7 +1575,13 @@ function LS:InitUI()
 	frame.enabled = CreateCheckbox(frame.settingsPanel, "Enable auto-sell at vendors", 8, y, function(checked)
 		LS.db.enabled = checked
 	end)
-	y = y - 28
+	y = y - 30
+
+	local sellHeader = frame.settingsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	sellHeader:SetPoint("TOPLEFT", 8, y)
+	sellHeader:SetText("Auto-sell rules")
+	y = y - 22
+
 	frame.sellGrey = CreateQualityCheckbox(frame.settingsPanel, QUALITY_COLORS.grey, "grey", " items", 8, y, function(checked)
 		LS.db.sellGrey = checked
 	end)
@@ -1257,34 +1617,42 @@ function LS:InitUI()
 	frame.restockEnabled = CreateCheckbox(frame.settingsPanel, "Enable auto-restock at vendors", 8, y, function(checked)
 		LS.db.restockEnabled = checked
 	end)
-	y = y - 28
+	y = y - 30
+
+	local generalHeader = frame.settingsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	generalHeader:SetPoint("TOPLEFT", 8, y)
+	generalHeader:SetText("General")
+	y = y - 22
+
 	frame.showChat = CreateCheckbox(frame.settingsPanel, "Show sold/bought items in chat", 8, y, function(checked)
 		LS.db.showChat = checked
 	end)
+	y = y - 24
+	frame.sellPromptAddToList = CreateCheckbox(frame.settingsPanel, "Prompt when manually selling items", 8, y, function(checked)
+		LS.db.sellPromptAddToList = checked
+	end)
 
 	local help = frame.settingsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	help:SetPoint("TOPLEFT", 8, y - 36)
-	help:SetWidth(460)
+	help:SetPoint("TOPLEFT", 8, y - 32)
+	help:SetWidth(480)
 	help:SetJustifyH("LEFT")
 	help:SetText(
-		"Priority: whitelist blocks selling, sell list always sells (unless whitelisted), then checkbox rules apply.\n\n"
-			.. "Safety: quest items, keys, and items with no vendor price are never sold.\n\n"
-			.. "Slash: /lu | /ls | /lu toggle | /lu sell | /lu restock"
+		"Vendor lists: Whitelist blocks selling. Sell list always sells. Restock refills at vendors.\n\n"
+			.. "Quest items, keys, and items with no vendor price are never sold.\n\n"
+			.. "/lu  /lu toggle  /lu sell  /lu restock  /lu mount  /lu bl"
 	)
 
-	frame.whitelistPanel = UI:CreateListPanel(frame, "LuhUtilitiesWhitelist", "whitelist")
-	frame.whitelistPanel.listRef = LS.db.whitelist
+	frame.vendorPanel = UI:CreateVendorPanel(frame)
+	frame.vendorPanel.whitelistPanel.listRef = LS.db.whitelist
+	frame.vendorPanel.sellListPanel.listRef = LS.db.sellList
+	frame.vendorPanel.restockPanel.listRef = LS.db.restockList
 
-	frame.sellListPanel = UI:CreateListPanel(frame, "LuhUtilitiesSellList", "sell list")
-	frame.sellListPanel.listRef = LS.db.sellList
+	frame.rollContainer = UI:CreateRollPanel(frame)
+	frame.rollContainer.rulesPanel.listRef = LS.db.rollForceList
 
-	frame.restockPanel = UI:CreateRestockPanel(frame, "LuhUtilitiesRestock")
-	frame.restockPanel.listRef = LS.db.restockList
-
-	frame.rollPanel = UI:CreateRollSettingsPanel(frame)
-	frame.rollRulesPanel = UI:CreateRollRulesPanel(frame, "LuhUtilitiesRollRules")
-	frame.rollRulesPanel.listRef = LS.db.rollForceList
 	frame.mountPanel = UI:CreateMountPanel(frame)
+	frame.gossipPanel = UI:CreateGossipPanel(frame)
+	frame.gossipPanel.listRef = LS.db.gossipNPCList
 	frame.blacklistPanel = UI:CreateBlacklistPanel(frame)
 
 	UI:ShowTab(frame, "settings")
@@ -1304,20 +1672,31 @@ function LS:RefreshUI()
 	f.sellBlueSoulboundNonEquip:SetChecked(self.db.sellBlueSoulboundNonEquip)
 	f.restockEnabled:SetChecked(self.db.restockEnabled)
 	f.showChat:SetChecked(self.db.showChat)
+	f.sellPromptAddToList:SetChecked(self.db.sellPromptAddToList ~= false)
 
-	f.whitelistPanel.listRef = self.db.whitelist
-	f.sellListPanel.listRef = self.db.sellList
-	f.restockPanel.listRef = self.db.restockList
-	f.rollRulesPanel.listRef = self.db.rollForceList
-	UI:RefreshListPanel(f.whitelistPanel)
-	UI:RefreshListPanel(f.sellListPanel)
-	UI:RefreshListPanel(f.restockPanel)
-	UI:RefreshListPanel(f.rollRulesPanel)
-	if f.rollPanel and f.rollPanel.Refresh then
-		f.rollPanel:Refresh()
+	if f.vendorPanel then
+		f.vendorPanel.whitelistPanel.listRef = self.db.whitelist
+		f.vendorPanel.sellListPanel.listRef = self.db.sellList
+		f.vendorPanel.restockPanel.listRef = self.db.restockList
+		if f.vendorPanel:IsShown() then
+			UI:ShowVendorSubTab(f.vendorPanel, f.vendorPanel.activeSubTab or "whitelist")
+		end
+	end
+	if f.rollContainer then
+		f.rollContainer.rulesPanel.listRef = self.db.rollForceList
+		if f.rollContainer.Refresh then
+			f.rollContainer:Refresh()
+		end
+		if f.rollContainer:IsShown() then
+			UI:ShowRollSubTab(f.rollContainer, f.rollContainer.activeSubTab or "rules")
+		end
 	end
 	if f.mountPanel then
 		UI:RefreshMountPanel(f.mountPanel)
+	end
+	if f.gossipPanel then
+		f.gossipPanel.listRef = self.db.gossipNPCList
+		UI:RefreshGossipPanel(f.gossipPanel)
 	end
 	if f.blacklistPanel then
 		UI:RefreshBlacklistPanel(f.blacklistPanel)

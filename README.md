@@ -1,47 +1,49 @@
 # LuhUtilities
 
-Auto-sell, restock, and group loot rolling for **World of Warcraft 3.3.5a (WotLK)**.
-
-Formerly **LuhSeller** — existing character settings migrate automatically from `LuhSellerDB` to `LuhUtilitiesDB`.
+Utility addon for **World of Warcraft 3.3.5a (WotLK)** — vendors, loot rolling, mounts, gossip, and player alerts.
 
 ## Features
 
 ### Vendor
-- Auto-sell when opening a vendor (with master on/off toggle)
-- Sell grey, white, green soulbound equipment, and blue soulbound equipment you can't use
-- Auto-restock from vendors with per-item target quantity (defaults to stack size)
-- Whitelist (never sell), sell list (always sell), and restock list
-- Shows total gold earned after selling
+- Auto-sell and auto-restock at vendors
+- Quality-based sell rules, whitelist, sell list, and restock list
+- Prompt to save manually sold items to the sell list
 
 ### Group loot rolling
-- Auto-roll when in a party or raid
-- **Green:** DE first (default), Greed first, or Greed only (no DE)
-- **Blue equipment:** Auto-greed when you can't equip it, with per armor-type toggles
-- **Epic equipment:** Auto-DE when you can't equip it (off by default)
-- **Recipes:** Need on usable, Greed on unusable
-- **Roll List:** Force Need / Greed / Pass / DE per item (highest priority)
+- Auto-roll in parties and raids with quality-based rules
+- Force-list overrides (Need / Greed with DE-first / Pass / DE)
+- Prompt to save manually rolled items to the force list
+
+### Mount
+- Smart ground/flying/passenger mount selection (GoGoMount-style)
+
+### Gossip
+- Auto-select vendor, banker, trainer, flight, stable, and battlemaster gossip
+- Saved NPC list; Shift skips automation
+
+### Blacklist
+- Alert when blacklisted players are nearby (party, raid, target)
 
 ### General
-- Drag-and-drop, item link, ID, or name to manage lists
-- Searchable lists with remove support
+- Searchable item and NPC lists with drag-and-drop support
 - Minimap button and slash commands
 
 ## Install
 
 1. Copy the `LuhUtilities` folder into `Interface\AddOns\`
-2. Disable the old `LuhSeller` addon if still present
-3. Enable **LuhUtilities** on the character select screen
-4. `/reload` or restart the client
+2. Enable **LuhUtilities** on the character select screen
+3. `/reload` or restart the client
 
 ## Commands
 
 | Command | Action |
 |---|---|
 | `/lu` or `/luhutilities` | Open settings |
-| `/ls` or `/luhseller` | Open settings (legacy alias) |
 | `/lu toggle` | Toggle auto-sell |
 | `/lu sell` | Sell now (at vendor) |
 | `/lu restock` | Restock now (at vendor) |
+| `/lu mount` | Open mount settings |
+| `/lu bl` | Blacklist commands |
 
 ## License
 

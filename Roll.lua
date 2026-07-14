@@ -9,7 +9,7 @@ LS.ROLL_BEHAVIORS = { "need", "greed", "pass", "de" }
 
 LS.ROLL_BEHAVIOR_LABELS = {
 	need = "Need",
-	greed = "Greed",
+	greed = "Greed (DE first)",
 	pass = "Pass",
 	de = "DE",
 }
@@ -37,6 +37,7 @@ local rollDefaults = {
 	rollRecipeGreedUnusable = true,
 	rollEpicDEUnusable = false,
 	rollForceList = {},
+	rollPromptAddToList = true,
 }
 
 function LS:InitRollDefaults()
@@ -123,6 +124,17 @@ function LS:CanRoll(rollID, rollType)
 	return true
 end
 
+function LS:ResolveDEFirstRoll(rollID)
+	local _, _, _, _, _, _, canGreed, canDisenchant = GetLootRollItemInfo(rollID)
+	if canDisenchant then
+		return LS.ROLL_DE
+	end
+	if canGreed then
+		return LS.ROLL_GREED
+	end
+	return nil
+end
+
 function LS:ResolveGreenRoll(rollID)
 	local _, _, _, _, _, _, canGreed, canDisenchant = GetLootRollItemInfo(rollID)
 	local priority = self.db.rollGreenPriority or "de"
@@ -188,6 +200,9 @@ function LS:ResolveRoll(rollID)
 	local itemID = self:GetItemIDFromLink(link)
 	local forceBehavior = self:GetRollForceBehavior(itemID)
 	if forceBehavior then
+		if forceBehavior == "greed" then
+			return self:ResolveDEFirstRoll(rollID)
+		end
 		return self:BehaviorToRollType(forceBehavior)
 	end
 
@@ -218,6 +233,81 @@ function LS:ResolveRoll(rollID)
 	return nil
 end
 
+function LS:RollTypeToBehavior(rollType)
+	for behavior, value in pairs(BEHAVIOR_TO_ROLL) do
+		if value == rollType then
+			return behavior
+		end
+	end
+	return nil
+end
+
+function LS:MarkAutoRoll(rollID)
+	self.autoRollIDs = self.autoRollIDs or {}
+	self.autoRollIDs[tonumber(rollID)] = true
+end
+
+function LS:ClearAutoRoll(rollID)
+	if self.autoRollIDs then
+		self.autoRollIDs[tonumber(rollID)] = nil
+	end
+end
+
+function LS:ScheduleClearAutoRoll(rollID)
+	rollID = tonumber(rollID)
+	if not rollID then
+		return
+	end
+	local frame = CreateFrame("Frame")
+	frame.rollID = rollID
+	frame.elapsed = 0
+	frame:SetScript("OnUpdate", function(f, elapsed)
+		f.elapsed = f.elapsed + elapsed
+		if f.elapsed < 0.5 then
+			return
+		end
+		f:SetScript("OnUpdate", nil)
+		LS:ClearAutoRoll(f.rollID)
+	end)
+end
+
+function LS:IsAutoRoll(rollID)
+	return self.autoRollIDs and self.autoRollIDs[tonumber(rollID)] == true
+end
+
+function LS:PromptAddRollRule(rollID, rollType)
+	if self:IsAutoRoll(rollID) then
+		return
+	end
+	if not self.db.rollPromptAddToList then
+		return
+	end
+	rollType = tonumber(rollType)
+	if rollType == nil then
+		return
+	end
+
+	local link = GetLootRollItemLink(rollID)
+	local itemID = self:GetItemIDFromLink(link)
+	if not itemID or self:GetRollForceBehavior(itemID) then
+		return
+	end
+
+	local behavior = self:RollTypeToBehavior(rollType)
+	if not behavior then
+		return
+	end
+
+	local itemName = GetItemInfo(itemID) or link or ("Item " .. itemID)
+	local behaviorLabel = LS.ROLL_BEHAVIOR_LABELS[behavior] or behavior
+
+	StaticPopup_Show("LUHUTILITIES_ADD_ROLL_RULE", link or itemName, behaviorLabel, {
+		itemID = itemID,
+		itemName = itemName,
+		behavior = behavior,
+	})
+end
+
 function LS:PrintRollMessage(rollID, rollType)
 	if not self.db.showChat then
 		return
@@ -242,35 +332,54 @@ end
 function LS:OnConfirmLootRoll(_, rollID, rollType)
 	rollType = tonumber(rollType)
 	if not self.pendingRollConfirm or self.pendingRollConfirm[rollID] ~= rollType then
+		if self.pendingManualRoll then
+			self.pendingManualRoll[rollID] = nil
+		end
 		return
 	end
 
+	self.skipConfirmLootRollHook = true
 	ConfirmLootRoll(rollID, rollType)
+	self.skipConfirmLootRollHook = nil
 	if StaticPopup_Hide then
 		StaticPopup_Hide("CONFIRM_LOOT_ROLL")
 	end
 
 	self:ClearPendingRoll(rollID)
+	self.internalRoll = nil
+	self:ScheduleClearAutoRoll(rollID)
 	self:PrintRollMessage(rollID, rollType)
 end
 
 function LS:OnConfirmDisenchantRoll(_, rollID, rollType)
 	rollType = tonumber(rollType) or LS.ROLL_DE
 	if not self.pendingRollConfirm or self.pendingRollConfirm[rollID] ~= LS.ROLL_DE then
+		if self.pendingManualRoll then
+			self.pendingManualRoll[rollID] = nil
+		end
 		return
 	end
 
+	self.skipConfirmLootRollHook = true
 	ConfirmLootRoll(rollID, rollType)
+	self.skipConfirmLootRollHook = nil
 	if StaticPopup_Hide then
 		StaticPopup_Hide("CONFIRM_DISENCHANT_ROLL")
 	end
 
 	self:ClearPendingRoll(rollID)
+	self.internalRoll = nil
+	self:ScheduleClearAutoRoll(rollID)
 	self:PrintRollMessage(rollID, rollType)
 end
 
 function LS:OnCancelLootRoll(_, rollID)
 	self:ClearPendingRoll(rollID)
+	self.internalRoll = nil
+	self:ScheduleClearAutoRoll(rollID)
+	if self.pendingManualRoll then
+		self.pendingManualRoll[rollID] = nil
+	end
 end
 
 function LS:PerformRoll(rollID, rollType)
@@ -283,6 +392,8 @@ function LS:PerformRoll(rollID, rollType)
 
 	self.pendingRollConfirm = self.pendingRollConfirm or {}
 	self.pendingRollConfirm[rollID] = rollType
+	self.internalRoll = tonumber(rollID)
+	self:MarkAutoRoll(rollID)
 
 	RollOnLoot(rollID, rollType)
 
@@ -299,6 +410,8 @@ function LS:PerformRoll(rollID, rollType)
 		f:SetScript("OnUpdate", nil)
 		if LS.pendingRollConfirm and LS.pendingRollConfirm[f.rollID] == f.rollType then
 			LS:ClearPendingRoll(f.rollID)
+			LS.internalRoll = nil
+			LS:ScheduleClearAutoRoll(f.rollID)
 			LS:PrintRollMessage(f.rollID, f.rollType)
 		end
 	end)
@@ -328,6 +441,82 @@ end
 
 function LS:InitRoll()
 	self:InitRollDefaults()
+
+	if not StaticPopupDialogs["LUHUTILITIES_ADD_ROLL_RULE"] then
+		StaticPopupDialogs["LUHUTILITIES_ADD_ROLL_RULE"] = {
+			text = "Add %s to roll rules as %s?",
+			button1 = YES,
+			button2 = NO,
+			OnAccept = function(_, data)
+				if data and data.itemID then
+					local ok, err = LS:AddToRollForceList(data.itemID, data.itemName, data.behavior)
+					if ok then
+						LS:Print("Added " .. (data.itemName or data.itemID) .. " to roll rules (" .. (data.behavior or "?") .. ").")
+						if LS.RefreshUI then
+							LS:RefreshUI()
+						end
+					elseif err then
+						LS:Print(err)
+					end
+				end
+			end,
+			timeout = 0,
+			whileDead = 1,
+			hideOnEscape = 1,
+			preferredIndex = 3,
+		}
+	end
+
+	if not self.rollHooked then
+		self.rollHooked = true
+		self.pendingManualRoll = {}
+		self.autoRollIDs = {}
+
+		hooksecurefunc("RollOnLoot", function(rollID, rollType)
+			rollID = tonumber(rollID)
+			rollType = tonumber(rollType)
+			if not rollID or rollType == nil then
+				return
+			end
+			if LS:IsAutoRoll(rollID) or tonumber(LS.internalRoll) == rollID then
+				return
+			end
+			LS.pendingManualRoll[rollID] = rollType
+			local frame = CreateFrame("Frame")
+			frame.elapsed = 0
+			frame.rollID = rollID
+			frame.rollType = rollType
+			frame:SetScript("OnUpdate", function(f, elapsed)
+				f.elapsed = f.elapsed + elapsed
+				if f.elapsed < 0.35 then
+					return
+				end
+				f:SetScript("OnUpdate", nil)
+				if LS:IsAutoRoll(f.rollID) then
+					LS.pendingManualRoll[f.rollID] = nil
+					return
+				end
+				if LS.pendingManualRoll and LS.pendingManualRoll[f.rollID] == f.rollType then
+					LS.pendingManualRoll[f.rollID] = nil
+					LS:PromptAddRollRule(f.rollID, f.rollType)
+				end
+			end)
+		end)
+
+		hooksecurefunc("ConfirmLootRoll", function(rollID, rollType)
+			rollID = tonumber(rollID)
+			if not rollID then
+				return
+			end
+			if LS.skipConfirmLootRollHook or LS:IsAutoRoll(rollID) then
+				return
+			end
+			if LS.pendingManualRoll then
+				LS.pendingManualRoll[rollID] = nil
+			end
+			LS:PromptAddRollRule(rollID, rollType)
+		end)
+	end
 
 	if self.rollFrame then
 		return
